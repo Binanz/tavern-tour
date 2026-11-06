@@ -1,42 +1,118 @@
 # Tavern Tour
 
-Jeu de plateau statique entre amis : partie locale contre les bots ou multijoueur PeerJS/WebRTC, avec un navigateur hôte qui fait autorité.
+Tavern Tour is a multiplayer board game inspired by property-trading classics and themed around tavern minions. Play locally against bots or host an online game for up to four players. Build a fortune through purchases, rent, upgrades, and strategic takeovers—or claim one of the game's immediate victory conditions.
 
-## Lancer le jeu
+## Features
 
-Servir ce dossier avec un serveur HTTP statique et ouvrir `index.html`. Les modules JavaScript natifs nécessitent HTTP : ouvrir directement le fichier via `file://` ne suffit plus. Aucun build ni paquet npm à installer. L'hébergeur doit publier aussi le dossier `src/` et servir les `.js` avec un type MIME JavaScript.
+- **Local games:** Play against one to three bots, with no room setup.
+- **Online multiplayer:** Host a room and invite friends with a short room code. The host manages the game; players connect peer-to-peer through WebRTC.
+- **Player profiles:** Choose a nickname and token in the lobby. If the nickname is left blank, a random name is selected.
+- **Configurable match length:** Choose a 10-, 15-, 20-, or 30-minute game.
+- **Timed turns:** Each turn lasts 30 seconds, with a visual fuse timer.
+- **Strategic property system:** Buy minions, improve properties through four Tavern levels and a Golden Minion, collect rent, sell properties, and bid in bankruptcy auctions.
+- **Special spaces and cards:** Visit the Lost Island, draw Chance cards, organize Championships, use the World Tour, and collect Festival rent bonuses.
+- **Three immediate victory conditions:** Own all four neutral minions, every purchasable space on one side of the board, or three complete minion-family monopolies.
 
-PeerJS et les polices sont chargés depuis des CDN. Le multijoueur nécessite une connexion et l'hôte doit rester présent.
+## Getting Started
 
-## Vérifier les changements
+Tavern Tour is a static web application and does not require a package installation or build step.
 
-Avec Node.js 22 ou plus :
+### Run locally
 
-```sh
+1. Clone or download this repository.
+2. Start a local HTTP server from the project directory, then open the address below in a modern browser. Native JavaScript modules require HTTP; opening `index.html` directly with `file://` is not supported.
+
+For example, with Python installed:
+
+```powershell
+python -m http.server 8000
+```
+
+Then open [http://localhost:8000](http://localhost:8000).
+
+Local play against bots works without creating a room. Online multiplayer requires an internet connection to load the PeerJS library and establish peer connections. The host must remain connected for the duration of an online match.
+
+## How to Play
+
+### Starting a game
+
+- Select a token and optionally enter a nickname.
+- Choose **Local Game** to play against bots, or create a room and share its code.
+- Friends can join with the room code. The host can configure the match duration and choose whether empty seats are filled by bots.
+- At the start of a match, every player rolls to determine turn order.
+
+### Turns and properties
+
+- Players roll two dice and move around the 32-space board. Each turn is limited to 30 seconds.
+- Passing Start awards the salary; landing directly on Start awards twice the salary.
+- Buy available properties and neutral minions, improve properties up to Tavern 4, and then upgrade to a Golden Minion.
+- Completing a property family doubles its rent at every upgrade level.
+- Festival selects three purchasable spaces from different families at the beginning of each game. Their rent is doubled for the rest of the match; purchase prices are unaffected.
+- Landing on an opponent's property requires paying rent. Eligible properties can then be bought out for 125% of their original investment. Neutral minions cannot be bought out.
+- Players can sell an entire property, including its upgrades, for 75% of its total investment. A bankrupt player's properties and upgrades are auctioned, and the player receives 50% of each winning bid.
+- A player sent to the Lost Island must pay to leave, use a release card, or attempt to roll doubles.
+- The World Tour activates on the player's next turn and replaces their normal dice roll.
+- Championships can increase the rent on one of the organizer's properties.
+
+### Winning
+
+A player wins immediately by meeting any one of these conditions:
+
+1. Own all four neutral minions: Brann, Drakkari, Titus, and Leeroy.
+2. Own every purchasable space on one side of the board, including properties and neutral minions.
+3. Own three complete property-family monopolies.
+
+If no one meets an immediate victory condition, the game ends when the match timer expires. The player with the highest total fortune—cash plus the value of owned spaces and upgrades—wins. The game also ends if all but one player go bankrupt.
+
+## Project Structure
+
+| File | Purpose |
+| --- | --- |
+| `index.html` | Application entry point and page structure |
+| `style.css` | Layout, responsive styling, and animations |
+| `app.js` | Composes controllers, connects callbacks, and starts the application |
+| `src/runtime.js` | Shared application state and configuration references |
+| `src/lobby.js` | Home screen, player profiles, and room setup |
+| `src/connection.js` | Host/client messages, reconnection, and heartbeat |
+| `src/session.js` | Match lifecycle, action dispatch, and bot scheduling |
+| `src/ui/` | Board, actions, dialogs, rendering, and animations |
+| `src/audio.js` | Procedural Web Audio effects |
+| `engine.js` | Game state, rules, turn resolution, and bot decisions |
+| `config.js` | Board layout, rules, property groups, and Chance cards |
+| `content.json` | Editable board names, card text, and bot-name data |
+| `net.js` | Peer-to-peer room networking |
+| `sim.js` | Automated gameplay simulations and rule regression tests |
+
+When deploying, publish the `src/` directory along with the root files and serve `.js` files with a JavaScript MIME type. No build step is required.
+
+## Testing
+
+Node.js 22 or later is required for the automated tests. No npm dependencies need to be installed. Run the controller integration tests (with a simulated DOM and timers) and 100 gameplay simulations:
+
+```powershell
 npm test
 ```
 
-Les tests d'intégration chargent les vrais modules avec un DOM et des timers simulés : démarrage, partie locale, classement, retour à l'accueil et routage des messages réseau. Ils ne remplacent pas une vérification du rendu ou une partie WebRTC dans deux navigateurs. `sim.js` exécute ensuite 100 parties et les tests de règles existants. Le chargeur de modules de test utilise l'API VM expérimentale de Node ; le jeu utilise les modules standard du navigateur.
+Or run the integration tests directly:
 
-## Organisation
+```powershell
+node --experimental-vm-modules --test tests/*.test.cjs
+```
 
-- `app.js` : composition des contrôleurs, branchement des callbacks et démarrage.
-- `src/runtime.js` : références de configuration et état partagé de l'application.
-- `src/lobby.js` : accueil, profils, création et arrivée dans une salle.
-- `src/connection.js` : messages hôte/invité, reconnexion et heartbeat.
-- `src/session.js` : lancement, actions, boucle hôte et programmation des bots.
-- `src/audio.js` : sons Web Audio.
-- `src/ui/board.js` : plateau, pions, joueurs et journal.
-- `src/ui/game.js` : coordination du rendu et horloges d'affichage.
-- `src/ui/actions.js` : actions proposées et sélection sur le plateau.
-- `src/ui/dialogs.js` : propriétés, cartes, classement et règles.
-- `src/ui/animations.js` : mouvements, dés et effets visuels.
-- `src/ui/helpers.js` : modales, toasts et formatage partagé.
-- `engine.js` : règles, transitions et décisions des bots ; utilisable dans Node.
-- `config.js` : règles et contenu ; `net.js` : transport PeerJS.
+These tests do not replace visual checks or WebRTC testing in real browsers. To run only the automated simulations:
 
-Les contrôleurs exposent des fonctions via une factory. Leurs interactions sont injectées par `app.js` : les modules ne s'importent pas mutuellement. Les factories n'appellent pas leurs callbacks à la création ; le démarrage a lieu après leur assemblage.
+```powershell
+node sim.js
+```
 
-Pour ajouter une règle, modifier le moteur et ses tests dans `sim.js`, puis l'action ou la vue concernée. Pour ajouter un écran, créer son module UI et le brancher dans `app.js`. Garder les détails PeerJS dans `net.js` et le traitement des messages dans `src/connection.js`.
+Pass a number to choose how many complete games to simulate:
 
-Le découpage conserve encore les mutations historiques de l'état partagé ; la centralisation des écritures de partie fait l'objet d'un changement séparé.
+```powershell
+node sim.js 30
+```
+
+The simulation runs gameplay invariants and focused regression tests for core rules, Chance cards, and victory conditions.
+
+## Credits and Disclaimer
+
+Tavern Tour is a fan-made, non-commercial project. It is not affiliated with or endorsed by Blizzard Entertainment. Game names and themed content belong to their respective owners.
