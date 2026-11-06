@@ -103,6 +103,12 @@ export function createBoard({ onTileClick }) {
         <div><div class="pc-cash">${fmt(p.cash)}</div><div class="pc-worth">Fortune ${fmt(E.netWorth(s, i))}</div></div>
         <div class="pc-coins" title="Or en caisse : une pièce d’or = 250 000, une pièce d’argent = 50 000">${coinStacks(p.cash)}</div>
         <div class="pc-props">${chips}</div>`;
+      if (s.powers) {
+        const inventory = document.createElement('div');
+        inventory.className = 'player-powers';
+        inventory.textContent = 'Pouvoirs : ' + (p.inventory.map(id => window.TT_CONFIG.POWERS[id].name).join(' · ') || 'aucun') + (p.insurance ? ' • protection loyer active' : '') + (p.buildDiscount ? ' • permis actif' : '');
+        card.appendChild(inventory);
+      }
       wrap.appendChild(card);
     });
   }

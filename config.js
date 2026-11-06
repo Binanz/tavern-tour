@@ -150,7 +150,18 @@
     destiny: { name: "Dé du destin", description: "Hors prison et ordre de passage, lancez trois dés et choisissez les deux à garder. Seuls ces deux dés comptent pour les doubles." },
   };
 
-  const CONFIG = { ANOMALIES, RULES, GROUPS, BOARD, CARDS, TOKENS, PLAYER_COLORS, BOT_NAMES, applyContent };
+  const POWER_RULES = { maxInventory: 2, legendaryChance: 0.05 };
+  const POWERS = {
+    shield: { name: 'Bouclier de Bob', description: 'La banque couvre jusqu’à 200 000 or de votre prochain loyer. Le propriétaire reçoit son loyer complet.', rare: false },
+    reroll: { name: 'Seconde chance', description: 'Au prochain lancer, regardez les dés puis gardez-les ou relancez une fois.', rare: false },
+    step: { name: 'Coup de pouce', description: 'Ajoutez ou retirez 1 au prochain déplacement aux dés. Les doubles ne changent pas.', rare: false },
+    permit: { name: 'Permis de construire', description: 'Économisez jusqu’à 150 000 or sur une prochaine amélioration (hors achat initial).', rare: false },
+    rentSkip: { name: 'Tournée légendaire', description: 'La banque paie intégralement votre prochain loyer, sans plafond.', rare: true },
+    annihilation: { name: 'Anéantissement', description: 'Renvoyez à la banque une propriété adverse et toutes ses constructions, même dorées. Aucun remboursement.', rare: true },
+    goldenGift: { name: 'Toucher de Midas', description: 'Transformez gratuitement une de vos propriétés en serviteur doré.', rare: true },
+  };
+
+  const CONFIG = { POWER_RULES, POWERS, ANOMALIES, RULES, GROUPS, BOARD, CARDS, TOKENS, PLAYER_COLORS, BOT_NAMES, applyContent };
   if (typeof global.localStorage !== 'undefined') {
     try {
       const currentKey = 'tavern-tour-content-v3';

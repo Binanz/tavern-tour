@@ -18,6 +18,9 @@ export function createLobby({ hostOnMessage, onPeerLeft, clientOnMessage, schedu
       };
       picker.appendChild(b);
     });
+    $('powersEnabled').onchange = () => {
+      if (app.lobby && app.mode === 'host' && !app.lobby.started) { app.lobby.powers = $('powersEnabled').checked; broadcastLobby(); }
+    };
     $('anomalySelect').onchange = () => {
       if (app.lobby && app.mode === 'host' && !app.lobby.started) { app.lobby.anomaly = $('anomalySelect').value; broadcastLobby(); }
     };
@@ -71,7 +74,7 @@ export function createLobby({ hostOnMessage, onPeerLeft, clientOnMessage, schedu
     $('btnHost').disabled = true;
     const code = makeCode(5);
     app.mode = 'host';
-    app.lobby = { code, players: [{ name: app.me.name, token: app.me.token, isBot: false, peerId: 'host' }], anomaly: $('anomalySelect').value || 'none', durationMin: +$('durationSelect').value, fillBots: $('fillBots').checked, started: false };
+    app.lobby = { code, players: [{ name: app.me.name, token: app.me.token, isBot: false, peerId: 'host' }], powers: !!$('powersEnabled').checked, anomaly: $('anomalySelect').value || 'none', durationMin: +$('durationSelect').value, fillBots: $('fillBots').checked, started: false };
     app.myIdx = 0;
     app.net = new Net({
       onReady: () => { setNetStatus(''); showLobby(); },
@@ -119,7 +122,7 @@ export function createLobby({ hostOnMessage, onPeerLeft, clientOnMessage, schedu
     const botNames = shuffledBotNames([app.me.name], nb);
     const freeTokens = TOKENS.filter((t) => t !== app.me.token);
     for (let i = 0; i < nb; i++) players.push({ name: botNames[i], token: freeTokens[i], isBot: true });
-    app.lobby = { code: null, players, anomaly: $('anomalySelect').value || 'none', durationMin: +$('durationSelect').value, fillBots: false, started: true };
+    app.lobby = { code: null, players, powers: !!$('powersEnabled').checked, anomaly: $('anomalySelect').value || 'none', durationMin: +$('durationSelect').value, fillBots: false, started: true };
     launch(players, app.lobby.durationMin);
   }
 
@@ -141,6 +144,8 @@ export function createLobby({ hostOnMessage, onPeerLeft, clientOnMessage, schedu
     $('fillBots').checked = L.fillBots;
     $('anomalySelect').value = L.anomaly || 'none';
     $('anomalySelect').disabled = !isHost;
+    $('powersEnabled').checked = !!L.powers;
+    $('powersEnabled').disabled = !isHost;
     $('anomalyHint').textContent = L.anomaly && L.anomaly !== 'none' ? 'Anomalie : ' + (L.anomaly === 'random' ? 'tirage au lancement' : window.TT_CONFIG.ANOMALIES[L.anomaly].description) : 'Mode classique — aucune anomalie.';
     renderLobbyProfile();
     const ul = $('seats'); ul.innerHTML = '';
@@ -207,10 +212,11 @@ export function createLobby({ hostOnMessage, onPeerLeft, clientOnMessage, schedu
     if (app.mode !== 'host' || !app.net) return;
     app.lobby.players.forEach((p, i) => { if (p.peerId && p.peerId !== 'host') app.net.sendTo(p.peerId, { type: 'lobby', lobby: publicLobby(), yourIdx: i }); });
   }
-  const publicLobby = () => ({ code: app.lobby.code, players: app.lobby.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot })), anomaly: app.lobby.anomaly || 'none', durationMin: app.lobby.durationMin, fillBots: app.lobby.fillBots, started: app.lobby.started });
+  const publicLobby = () => ({ code: app.lobby.code, players: app.lobby.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot })), powers: !!app.lobby.powers, anomaly: app.lobby.anomaly || 'none', durationMin: app.lobby.durationMin, fillBots: app.lobby.fillBots, started: app.lobby.started });
 
   function leaveLobby() {
     $('anomalySelect').disabled = false;
+    $('powersEnabled').disabled = false;
     clearTimeout(app.hostLostTimer); app.hostLostTimer = null;
     if (app.net) app.net.destroy();
     app.net = null; app.mode = null; app.lobby = null;

@@ -24,7 +24,7 @@ export function createSession({ shuffledBotNames, setNetStatus, onState }) {
   function launch(players, durationMin) {
     $('brandHome').disabled = true;
     document.querySelector('.topbar').classList.remove('game-ended');
-    app.state = E.createGame(players, { durationMin, anomaly: app.lobby ? app.lobby.anomaly : 'none' });
+    app.state = E.createGame(players, { powers: !!(app.lobby && app.lobby.powers), durationMin, anomaly: app.lobby ? app.lobby.anomaly : 'none' });
     app.displayedPos = app.state.players.map(() => 0);
     app.prevCash = null; app.prevCurrent = -1; app.prevTurnCount = 0;
     app.pawnQueue = app.state.players.map(() => []);
@@ -138,6 +138,7 @@ export function createSession({ shuffledBotNames, setNetStatus, onState }) {
     $('tokenPicker').querySelectorAll('.token-btn').forEach((button) => { button.disabled = false; });
     $('btnHost').disabled = false; $('btnJoin').disabled = false;
     $('anomalySelect').disabled = false;
+    $('powersEnabled').disabled = false;
     setNetStatus('');
   }
 
