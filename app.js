@@ -9,7 +9,6 @@
   const { Net, makeCode } = window.TT_NET;
   const { BOARD, GROUPS, RULES, TOKENS, BOT_NAMES } = CFG;
   const N = BOARD.length;
-  const SAVE_KEY = 'tavern-tour-active-game-v1';
   const $ = (id) => document.getElementById(id);
   const fmt = E.fmt;
   const STEP_MS = 170;
@@ -32,6 +31,7 @@
     prevCash: null, prevCurrent: -1, prevTurnCount: 0, autoEndTimer: null,
     hostLostTimer: null, hostLostShown: false,
     clientPeerId: null,
+    pendingClaims: Object.create(null),
   };
   const LEVEL_LABELS = ['Sans taverne', 'Taverne 1', 'Taverne 2', 'Taverne 3', 'Taverne 4', 'Serviteur doré'];
 
@@ -184,70 +184,7 @@
     $('btnRules').onclick = showRules;
     $('brandHome').onclick = returnHome;
     $('btnMute').onclick = () => { app.muted = !app.muted; $('btnMute').setAttribute('aria-pressed', String(app.muted)); if (!app.muted) SFX.coin(); };
-    $('btnResume').onclick = resumeSavedGame;
-    $('btnDiscardResume').onclick = () => { clearSavedSession(); $('resumePanel').hidden = true; };
-    $('btnImportContent').onclick = () => $('contentFile').click();
-    $('contentFile').onchange = async (event) => {
-      const file = event.target.files && event.target.files[0];
-      if (!file) return;
-      try {
-        const content = JSON.parse(await file.text());
-        CFG.applyContent(content);
-        localStorage.setItem('tavern-tour-content-v1', JSON.stringify(content));
-        location.reload();
-      } catch (error) {
-        console.error('Impossible d’importer le fichier de contenu.', error);
-        toast(`Import impossible : ${error.message || 'fichier invalide'}`);
-      } finally {
-        event.target.value = '';
-      }
-    };
-    const saved = readSavedSession();
-    if (saved) {
-      $('resumePanel').hidden = false;
-      $('resumeHint').textContent = saved.mode === 'client'
-        ? `Partie en ligne ${saved.lobby && saved.lobby.code ? `(${saved.lobby.code})` : ''} sauvegardée sur cet appareil.`
-        : 'Une partie sauvegardée est disponible sur cet appareil.';
-    }
     window.addEventListener('resize', () => { if (app.state) positionAllPawns(); });
-    window.addEventListener('beforeunload', saveSession);
-  }
-
-  function readSavedSession() {
-    let raw;
-    try { raw = localStorage.getItem(SAVE_KEY); }
-    catch (error) { console.error('Impossible de lire la sauvegarde de la partie.', error); return null; }
-    if (!raw) return null;
-    try {
-      const saved = JSON.parse(raw);
-      if (!saved || !['local', 'host', 'client'].includes(saved.mode) || !saved.state || !Array.isArray(saved.state.players) || saved.state.phase !== 'playing') {
-        throw new Error('format de sauvegarde invalide');
-      }
-      if (!Number.isInteger(saved.myIdx) || saved.myIdx < 0 || saved.myIdx >= saved.state.players.length) throw new Error('index de joueur invalide');
-      if (saved.mode !== 'local' && (!saved.lobby || !saved.lobby.code)) throw new Error('code de salle manquant');
-      if (saved.mode === 'client' && !saved.peerId) throw new Error('identifiant de reconnexion manquant');
-      return saved;
-    } catch (error) {
-      console.error('La sauvegarde de partie est invalide.', error);
-      clearSavedSession();
-      return null;
-    }
-  }
-  function saveSession() {
-    if (!app.state || app.state.phase !== 'playing') return;
-    try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({
-        mode: app.mode, state: app.state, lobby: app.lobby, myIdx: app.myIdx,
-        me: app.me, peerId: app.net && app.net.peer ? app.net.peer.id : app.clientPeerId,
-      }));
-    } catch (error) {
-      console.error('Impossible de sauvegarder la partie.', error);
-      if (!document.hidden) toast('La sauvegarde automatique a échoué.');
-    }
-  }
-  function clearSavedSession() {
-    try { localStorage.removeItem(SAVE_KEY); }
-    catch (error) { console.error('Impossible de supprimer la sauvegarde de partie.', error); }
   }
   function shuffledBotNames(excluded, count) {
     const used = new Set(excluded.map((name) => name.toLocaleLowerCase()));
@@ -258,66 +195,6 @@
     }
     return available.slice(0, count);
   }
-  function resumeSavedGame() {
-    const saved = readSavedSession();
-    if (!saved) { $('resumePanel').hidden = true; toast('Aucune sauvegarde de partie valide.'); return; }
-    app.me = saved.me || app.me;
-    $('nameInput').value = app.me.name || '';
-    $('tokenPicker').querySelectorAll('.token-btn').forEach((button, i) => button.setAttribute('aria-checked', String(TOKENS[i] === app.me.token)));
-    app.mode = saved.mode;
-    app.lobby = saved.lobby || null;
-    app.state = saved.state;
-    app.state.events = [];
-    app.myIdx = Number.isInteger(saved.myIdx) ? saved.myIdx : 0;
-    app.clientPeerId = saved.peerId || null;
-    app.gameShown = false;
-    app.displayedPos = app.state.players.map((player) => player.pos);
-    app.pawnQueue = app.state.players.map(() => []);
-    app.pawnBusy = app.state.players.map(() => false);
-    app.prevCash = null; app.prevCurrent = -1; app.prevTurnCount = 0;
-    app.lastSeen = {}; app.hostLostShown = false;
-    clearInterval(app.tickTimer);
-    clearTimeout(app.botTimer); clearTimeout(app.actionTimer); clearTimeout(app.autoEndTimer);
-    $('resumePanel').hidden = true;
-
-    if (app.mode === 'client') {
-      joinGame(saved);
-      return;
-    }
-    if (app.mode === 'host') {
-      if (!app.lobby || !app.lobby.code) { toast('La sauvegarde de l’hôte ne contient pas de code de salle.'); return; }
-      app.lobby.started = true;
-      app.net = new Net({
-        onReady: () => { setNetStatus(''); resumeRunningGame(); },
-        onLeave: (id) => onPeerLeft(id),
-        onMessage: (from, msg) => hostOnMessage(from, msg),
-        onError: (msg) => {
-          setNetStatus(msg, true);
-          if (app.net) app.net.destroy();
-          app.net = null; app.mode = null;
-          $('resumePanel').hidden = false;
-        },
-      });
-      try { app.net.host(app.lobby.code); }
-      catch (error) { setNetStatus(error.message, true); app.net = null; app.mode = null; $('resumePanel').hidden = false; }
-      return;
-    }
-    resumeRunningGame();
-  }
-  function resumeRunningGame() {
-    $('brandHome').disabled = true;
-    document.querySelector('.topbar').classList.remove('game-ended');
-    app.state.events = [];
-    app.state.turnEndsAt = app.state.turnEndsAt || Date.now() + RULES.turnDurationMs;
-    app.sync = {
-      remainingMs: app.state.remainingMs,
-      turnRemainingMs: Math.max(0, app.state.turnEndsAt - Date.now()),
-      at: Date.now(),
-    };
-    app.tickTimer = setInterval(hostTick, 1000);
-    afterChange();
-  }
-
   function readMe() {
     const n = $('nameInput').value.trim();
     app.me.name = n || 'Aventurier';
@@ -345,10 +222,8 @@
     try { app.net.host(code); } catch (e) { setNetStatus(e.message, true); $('btnHost').disabled = false; app.mode = null; }
   }
 
-  function joinGame(options) {
-    const resume = !!options;
-    const code = resume ? String(options.code || '').trim().toUpperCase() : $('joinCode').value.trim().toUpperCase();
-    const resumePeerId = resume ? options.peerId || null : null;
+  function joinGame() {
+    const code = $('joinCode').value.trim().toUpperCase();
     readMe();
     if (code.length < 4) { toast('Entrez le code de la salle.'); return; }
     setNetStatus('Connexion à la salle ' + code + '…');
@@ -358,10 +233,6 @@
       onReady: () => {
         app.lastHostSeen = Date.now();
         app.clientPeerId = app.net.peer.id;
-        if (resume) {
-          try { localStorage.setItem(SAVE_KEY, JSON.stringify({ ...options, peerId: app.clientPeerId })); }
-          catch (error) { console.error('Impossible de mettre à jour la sauvegarde de partie.', error); }
-        }
         setNetStatus('Connecté, en attente de l’hôte…');
         app.net.sendHost({ type: 'hello', name: app.me.name, token: app.me.token });
       },
@@ -370,13 +241,11 @@
       onError: (msg) => {
         setNetStatus(msg, true); $('btnJoin').disabled = false;
         app.net && app.net.destroy(); app.net = null; app.mode = null;
-        if (resume) $('resumePanel').hidden = false;
       },
     });
-    try { app.net.join(code, resumePeerId); }
+    try { app.net.join(code); }
     catch (e) {
-      setNetStatus(e.message, true); $('btnJoin').disabled = false; app.mode = null;
-      if (resume) { app.net = null; $('resumePanel').hidden = false; }
+      setNetStatus(e.message, true); $('btnJoin').disabled = false; app.mode = null; app.net = null;
     }
   }
 
@@ -513,7 +382,22 @@
         } else app.net.sendTo(from, { type: 'lobby', lobby: publicLobby(), yourIdx: existing });
         return;
       }
-      if (L.started) { app.net.sendTo(from, { type: 'rejected', reason: 'La partie a déjà commencé.' }); return; }
+      if (L.started) {
+        const available = app.state && app.state.phase === 'playing'
+          ? app.state.players.map((player, index) => ({ player, index })).filter(({ player }) => player.isBot && !player.bankrupt)
+          : [];
+        if (!available.length) {
+          app.net.sendTo(from, { type: 'rejected', reason: 'Aucun bot ne peut être remplacé dans cette partie.' });
+          return;
+        }
+        app.pendingClaims[from] = true;
+        app.net.sendTo(from, {
+          type: 'claimOptions',
+          lobby: publicLobby(),
+          players: available.map(({ player, index }) => ({ index, name: player.name, token: player.token })),
+        });
+        return;
+      }
       if (L.players.length >= RULES.maxPlayers) { app.net.sendTo(from, { type: 'rejected', reason: 'La salle est pleine (4 joueurs).' }); return; }
       let name = String(msg.name || 'Invité').slice(0, 16);
       if (L.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) name += ' ' + (L.players.length + 1);
@@ -522,6 +406,23 @@
       L.players.push({ name, token, isBot: false, peerId: from });
       broadcastLobby();
       SFX.coin();
+      return;
+    }
+    if (msg.type === 'claimPlayer') {
+      if (!app.pendingClaims[from]) return;
+      delete app.pendingClaims[from];
+      const idx = Number(msg.index);
+      const player = Number.isInteger(idx) && app.state && app.state.players[idx];
+      if (!app.lobby || !app.lobby.started || !app.state || app.state.phase !== 'playing' || !player || !player.isBot || player.bankrupt) {
+        app.net.sendTo(from, { type: 'rejected', reason: 'Ce bot ne peut plus être remplacé. Rejoignez à nouveau la partie pour actualiser les choix.' });
+        return;
+      }
+      player.isBot = false;
+      player.connected = true;
+      player.peerId = from;
+      app.lobby.players[idx] = { name: player.name, token: player.token, isBot: false, peerId: from };
+      app.state.log.push({ t: `${player.name} rejoint la partie et remplace un bot.`, k: 'info', n: app.state.turnCount });
+      afterChange();
       return;
     }
     if (msg.type === 'profile' && app.lobby && !app.lobby.started) {
@@ -540,6 +441,7 @@
   }
   function onPeerLeft(id) {
     delete app.lastSeen[id];
+    delete app.pendingClaims[id];
     if (!app.lobby) return;
     if (!app.lobby.started) {
       const i = app.lobby.players.findIndex((p) => p.peerId === id);
@@ -564,6 +466,11 @@
     app.lastHostSeen = Date.now();
     if (msg.type === 'ping') { app.net.sendHost({ type: 'pong' }); return; }
     switch (msg.type) {
+      case 'claimOptions':
+        app.lobby = msg.lobby;
+        setNetStatus('');
+        showTakeoverOptions(msg.players);
+        break;
       case 'lobby':
         app.lobby = msg.lobby; app.myIdx = msg.yourIdx; setNetStatus('');
         app.me.name = app.lobby.players[app.myIdx].name;
@@ -574,16 +481,27 @@
       case 'state':
         app.state = msg.state; app.myIdx = app.state.players.findIndex((p) => p.peerId === app.net.peer.id);
         if (app.myIdx < 0) app.myIdx = msg.yourIdx != null ? msg.yourIdx : 0;
-        if (app.state.phase === 'playing') saveSession();
-        else clearSavedSession();
         onState();
         break;
       case 'error': toast(msg.msg); SFX.bad(); break;
       case 'rejected':
-        setNetStatus(msg.reason, true); $('btnJoin').disabled = false; app.net.destroy(); app.net = null; app.mode = null;
-        if (app.state && !app.gameShown) $('resumePanel').hidden = false;
+        closeModal();
+        setNetStatus(msg.reason, true); $('btnJoin').disabled = false; app.net.destroy(); app.net = null; app.mode = null; app.lobby = null;
         break;
     }
+  }
+  function showTakeoverOptions(players) {
+    const options = Array.isArray(players) ? players : [];
+    const choices = options.map((player) => `<button class="btn takeover-choice" data-claim-index="${player.index}"><span class="takeover-token">${esc(player.token)}</span><span>${esc(player.name)}</span><small>Remplacer ce bot</small></button>`).join('');
+    const card = openModal(`<h2>Choisir votre joueur</h2><p>La partie est déjà en cours. Choisissez un bot à remplacer ; les joueurs réels ne peuvent pas être remplacés.</p><div class="takeover-choices">${choices}</div><div class="btn-row"><button class="btn ghost" id="cancelTakeover">Annuler</button></div>`, { noClose: true });
+    card.querySelectorAll('[data-claim-index]').forEach((button) => {
+      button.onclick = () => {
+        card.querySelectorAll('[data-claim-index]').forEach((choice) => { choice.disabled = true; });
+        button.textContent = 'Connexion au joueur…';
+        app.net.sendHost({ type: 'claimPlayer', index: Number(button.dataset.claimIndex) });
+      };
+    });
+    card.querySelector('#cancelTakeover').onclick = () => { closeModal(); leaveLobby(); };
   }
   function scheduleHostLost() {
     if (app.hostLostShown || app.hostLostTimer || app.mode !== 'client') return;
@@ -596,7 +514,7 @@
   function hostLost() {
     if (app.hostLostShown) return;
     app.hostLostShown = true;
-    openModal(`<h2>Connexion perdue</h2><p>L’hôte a quitté la partie ou la connexion a été coupée. Votre sauvegarde reste disponible sur cet appareil. Vous pourrez reprendre la partie si l’hôte revient.</p><div class="btn-row"><button class="btn primary" onclick="location.reload()">Retour à l’accueil</button></div>`, { noClose: true });
+    openModal(`<h2>Connexion perdue</h2><p>L’hôte a quitté la partie ou la connexion a été coupée. Si l’hôte revient, rejoignez à nouveau avec le code de la salle.</p><div class="btn-row"><button class="btn primary" onclick="location.reload()">Retour à l’accueil</button></div>`, { noClose: true });
   }
 
   // ============================================================
@@ -614,6 +532,7 @@
       }
     }
     if (players.length < 2) { toast('Il faut au moins 2 joueurs (ou cochez « compléter avec des bots »).'); return; }
+    L.players = players.map((player) => ({ ...player }));
     L.started = true;
     launch(players, L.durationMin);
   }
@@ -656,8 +575,6 @@
     const s = app.state;
     s.remainingMs = s.ordering ? s.durationMs : Math.max(0, s.endsAt - Date.now());
     if (!s.ordering && s.turnEndsAt == null) s.turnEndsAt = Date.now() + RULES.turnDurationMs;
-    if (s.phase === 'playing') saveSession();
-    else clearSavedSession();
     if (app.mode === 'host' && app.net) {
       s.players.forEach((p, i) => { if (p.peerId && p.peerId !== 'host') app.net.sendTo(p.peerId, { type: 'state', state: s, yourIdx: i }); });
     }
@@ -1199,7 +1116,6 @@
   function returnHome() {
     if (!app.state || app.state.phase !== 'ended') return;
     closeModal();
-    clearSavedSession();
     clearTimeout(app.botTimer); clearTimeout(app.actionTimer); clearTimeout(app.autoEndTimer);
     clearInterval(app.tickTimer);
     clearTimeout(app.hostLostTimer);

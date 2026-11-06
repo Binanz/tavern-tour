@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css?v=13" />
+  <link rel="stylesheet" href="./style.css?v=14" />
 </head>
 <body>
   <header class="topbar">
@@ -38,17 +38,6 @@
       <p class="lede">Le Business Tour des copains, version Battlegrounds : achetez des serviteurs, encaissez les loyers, et soyez le plus riche quand le chrono sonne.</p>
     </section>
 
-    <section class="panel resume-panel" id="resumePanel" hidden>
-      <div>
-        <h2>Partie en cours</h2>
-        <p class="muted" id="resumeHint">Une partie sauvegardée est disponible sur cet appareil.</p>
-      </div>
-      <div class="resume-actions">
-        <button class="btn primary" id="btnResume">Reprendre la partie</button>
-        <button class="btn" id="btnDiscardResume">Abandonner la sauvegarde</button>
-      </div>
-    </section>
-
     <section class="home-grid">
       <div class="panel identity">
         <h2>Votre pion</h2>
@@ -71,7 +60,7 @@
         </div>
         <div class="mode">
           <h3>Rejoindre</h3>
-          <p>Saisissez le code reçu.</p>
+          <p>Saisissez le code reçu. Si la partie a commencé, vous pourrez remplacer un bot.</p>
           <div class="join-row">
             <input id="joinCode" maxlength="5" placeholder="CODE" autocomplete="off" spellcheck="false" />
             <button class="btn" id="btnJoin">Rejoindre</button>
@@ -122,17 +111,8 @@
       </div>
     </section>
 
-    <section class="panel content-tools">
-      <div>
-        <h2>Modifier le contenu</h2>
-        <p class="muted">Modifiez <code>content.json</code>, puis importez-le : <code>boardNames</code> utilise les numéros des cases du plateau, <code>cardTexts</code> suit l’ordre des cartes Chance et <code>botNames</code> contient au moins 3 noms uniques.</p>
-      </div>
-      <input id="contentFile" type="file" accept=".json,application/json" hidden />
-      <button class="btn" id="btnImportContent">Importer content.json</button>
-    </section>
-
     <footer class="home-foot">
-      <p>Pair-à-pair, sans serveur : l’hôte doit rester connecté pendant la partie. Noms des bots, propriétés et cartes modifiables avec <code>content.json</code>.</p>
+      <p>Pair-à-pair, sans serveur : l’hôte doit rester connecté pendant la partie.</p>
     </footer>
   </main>
 
@@ -177,7 +157,7 @@
   <script src="./config.js?v=6"></script>
   <script src="./engine.js?v=5"></script>
   <script src="./net.js?v=5"></script>
-  <script src="./app.js?v=7"></script>
+  <script src="./app.js?v=8"></script>
 <script data-pplx-inline-edit>
 (function () {
   if (window === window.top) return;
