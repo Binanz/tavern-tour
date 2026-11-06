@@ -1,0 +1,953 @@
+/* ============================================================
+   TAVERN TOUR — interface, animations, orchestration réseau
+   ============================================================ */
+(function () {
+  'use strict';
+
+  const CFG = window.TT_CONFIG;
+  const E = window.TT_ENGINE;
+  const { Net, makeCode } = window.TT_NET;
+  const { BOARD, GROUPS, RULES, TOKENS } = CFG;
+  const N = BOARD.length;
+  const $ = (id) => document.getElementById(id);
+  const fmt = E.fmt;
+  const STEP_MS = 170;
+
+  const app = {
+    mode: null, net: null,
+    me: { name: '', token: TOKENS[0] },
+    myIdx: 0,
+    lobby: null,
+    state: null,
+    botTimer: null, tickTimer: null, actionTimer: null,
+    sync: { remainingMs: RULES.defaultDurationMin * 60000, at: Date.now() },
+    muted: false,
+    displayedPos: [], pawnQueue: [], pawnBusy: [],
+    selectMode: null,
+    boardBuilt: false,
+    gameShown: false,
+    lastLogLen: 0,
+    lastSeen: {}, lastHostSeen: null,
+    prevCash: null, prevCurrent: -1, prevTurnCount: 0, autoEndTimer: null, tradeTimer: null, tradeShownKey: null,
+  };
+  const LEVEL_LABELS = ['Terrain nu', '1 maison', '2 maisons', '3 maisons', 'Hôtel'];
+
+  // Battement de cœur : détecte les déconnexions que WebRTC ne signale pas vite.
+  setInterval(() => {
+    if (!app.net) return;
+    const now = Date.now();
+    if (app.mode === 'host') {
+      app.net.broadcast({ type: 'ping' });
+      for (const id of Object.keys(app.lastSeen)) {
+        if (now - app.lastSeen[id] > 10000) { delete app.lastSeen[id]; app.net.kick(id); onPeerLeft(id); }
+      }
+    } else if (app.mode === 'client' && app.lastHostSeen && now - app.lastHostSeen > 12000) {
+      app.lastHostSeen = null; hostLost();
+    }
+  }, 3000);
+
+  // ============================================================
+  // Sons (procéduraux, Web Audio)
+  // ============================================================
+  let actx = null;
+  function audio() {
+    if (app.muted) return null;
+    try { if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === 'suspended') actx.resume(); } catch (e) { return null; }
+    return actx;
+  }
+  function tone(freq, dur, type, vol, when) {
+    const ctx = audio(); if (!ctx) return;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || 'sine'; o.frequency.value = freq;
+    const t0 = ctx.currentTime + (when || 0);
+    g.gain.setValueAtTime(vol || 0.15, t0);
+    g.gain.exponentialRampToValueAtTime(0.001, t0 + dur);
+    o.connect(g).connect(ctx.destination); o.start(t0); o.stop(t0 + dur);
+  }
+  const SFX = {
+    step: () => tone(520, 0.05, 'triangle', 0.06),
+    coin: () => { tone(1046, 0.12, 'sine', 0.12); tone(1568, 0.25, 'sine', 0.1, 0.07); },
+    pay: () => { tone(330, 0.15, 'sawtooth', 0.06); tone(220, 0.25, 'sawtooth', 0.06, 0.1); },
+    card: () => { tone(660, 0.08, 'triangle', 0.08); tone(880, 0.12, 'triangle', 0.08, 0.08); tone(1100, 0.2, 'triangle', 0.08, 0.16); },
+    dice: () => {
+      const ctx = audio(); if (!ctx) return;
+      for (let i = 0; i < 6; i++) tone(200 + Math.random() * 400, 0.04, 'square', 0.04, i * 0.09);
+    },
+    bad: () => { tone(160, 0.3, 'sawtooth', 0.08); tone(120, 0.4, 'sawtooth', 0.08, 0.15); },
+    win: () => { [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.35, 'triangle', 0.1, i * 0.12)); },
+    // gain d'or : cascade de pièces ; perte : coup sourd + pièces qui tombent
+    gain: (big) => { const n = big ? 6 : 3; for (let i = 0; i < n; i++) { tone(1200 + i * 180, 0.1, 'sine', 0.1, i * 0.06); tone(1800 + i * 200, 0.18, 'triangle', 0.05, i * 0.06 + 0.03); } },
+    loss: (big) => { tone(110, 0.35, 'sawtooth', big ? 0.14 : 0.09); tone(80, 0.5, 'triangle', big ? 0.14 : 0.08, 0.05); for (let i = 0; i < (big ? 4 : 2); i++) tone(900 - i * 120, 0.08, 'square', 0.03, 0.25 + i * 0.07); },
+    turn: () => { tone(660, 0.12, 'triangle', 0.12); tone(880, 0.14, 'triangle', 0.12, 0.12); tone(1320, 0.4, 'sine', 0.12, 0.24); },
+    soft: () => tone(700, 0.08, 'sine', 0.04),
+    land: () => { tone(300, 0.08, 'triangle', 0.08); tone(420, 0.12, 'triangle', 0.06, 0.04); },
+  };
+
+  // ============================================================
+  // Utilitaires UI
+  // ============================================================
+  function toast(msg, ms) {
+    const t = $('toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms || 2600);
+  }
+  function openModal(html, opts) {
+    opts = opts || {};
+    const m = $('modal'), c = $('modalCard');
+    c.innerHTML = html + (opts.noClose ? '' : '<button class="btn small ghost close" data-close>✕</button>');
+    m.hidden = false;
+    m.onclick = (e) => { if (e.target === m && !opts.noClose) closeModal(); };
+    c.querySelectorAll('[data-close]').forEach((b) => (b.onclick = closeModal));
+    return c;
+  }
+  function closeModal() { $('modal').hidden = true; clearTimeout(openModal._auto); }
+  const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+  const groupColor = (i) => (BOARD[i].type === 'property' ? GROUPS[BOARD[i].group].color : BOARD[i].type === 'station' ? '#8b8b8b' : '#5c88a8');
+  const typeLabel = (i) => (BOARD[i].type === 'property' ? GROUPS[BOARD[i].group].label : BOARD[i].type === 'station' ? 'Serviteur neutre' : 'Service');
+  const ICONS = { start: '🍺', jail: '🏝️', championship: '🏆', worldtour: '🌀', tax: '💰', station: '🛡️', utility: '🔮', chance: '?' };
+  const shortName = (i) => BOARD[i].short || BOARD[i].name;
+  // format compact pour les cases : 540 k, 1,05 M
+  const fmtShort = (n) => (n >= 1e6 ? (Math.round(n / 10000) / 100).toLocaleString('fr-FR') + ' M' : Math.round(n / 1000).toLocaleString('fr-FR') + ' k');
+
+  // ---- effets visuels : nombres flottants, flashs ----
+  function floatMoney(x, y, amount, big) {
+    const el = document.createElement('div');
+    el.className = 'fx-money ' + (amount >= 0 ? 'gain' : 'loss') + (big ? ' big' : '');
+    el.textContent = (amount >= 0 ? '+' : '−') + fmt(Math.abs(amount));
+    x = Math.min(window.innerWidth - 90, Math.max(90, x)); y = Math.max(70, y);
+    el.style.left = x + 'px'; el.style.top = y + 'px';
+    $('fx').appendChild(el);
+    setTimeout(() => el.remove(), 1600);
+  }
+  function centerOf(el) { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }
+  function flashTile(i, kind) {
+    const el = $('board').querySelector(`.tile[data-i="${i}"]`); if (!el) return;
+    el.classList.remove('land', 'bad', 'good'); void el.offsetWidth;
+    el.classList.add('land'); if (kind) el.classList.add(kind);
+    setTimeout(() => el.classList.remove('land', 'bad', 'good'), 850);
+  }
+  function flashCard(pIdx, kind) {
+    const card = $('players').children[pIdx]; if (!card) return;
+    card.classList.remove('flash-gain', 'flash-loss'); void card.offsetWidth; card.classList.add('flash-' + kind);
+    const cash = card.querySelector('.pc-cash'); if (cash) { cash.classList.remove('bump'); void cash.offsetWidth; cash.classList.add('bump'); }
+  }
+  // Montre la variation d'or d'un joueur : sur sa carte, sur son pion, et un son.
+  function showMoneyDelta(pIdx, delta) {
+    if (!delta) return;
+    const card = $('players').children[pIdx];
+    const big = Math.abs(delta) >= 200000;
+    if (card) { const c = centerOf(card.querySelector('.pc-cash') || card); floatMoney(c.x, c.y - 10, delta, big); flashCard(pIdx, delta > 0 ? 'gain' : 'loss'); }
+    const pawn = $('pawn' + pIdx);
+    if (pawn) { const c = centerOf(pawn); floatMoney(c.x, c.y - 18, delta, false); }
+    const mine = pIdx === app.myIdx;
+    if (mine) (delta > 0 ? SFX.gain : SFX.loss)(big); else SFX.soft();
+  }
+  function showTurnOverlay() {
+    const o = $('turnOverlay'); o.hidden = false;
+    const inner = o.querySelector('.to-inner'); inner.style.animation = 'none'; void inner.offsetWidth; inner.style.animation = '';
+    clearTimeout(showTurnOverlay._t); showTurnOverlay._t = setTimeout(() => (o.hidden = true), 1850);
+    SFX.turn();
+  }
+
+  // ============================================================
+  // Accueil / lobby
+  // ============================================================
+  function initHome() {
+    const picker = $('tokenPicker');
+    TOKENS.forEach((tk, i) => {
+      const b = document.createElement('button');
+      b.className = 'token-btn'; b.type = 'button'; b.textContent = tk; b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', i === 0 ? 'true' : 'false');
+      b.onclick = () => { app.me.token = tk; picker.querySelectorAll('.token-btn').forEach((x) => x.setAttribute('aria-checked', x === b ? 'true' : 'false')); SFX.step(); };
+      picker.appendChild(b);
+    });
+    const dsel = $('durationSelect');
+    RULES.durationsMin.forEach((m) => { const o = document.createElement('option'); o.value = m; o.textContent = `${m} min`; if (m === RULES.defaultDurationMin) o.selected = true; dsel.appendChild(o); });
+    dsel.onchange = () => { if (app.lobby) { app.lobby.durationMin = +dsel.value; broadcastLobby(); } };
+    $('fillBots').onchange = () => { if (app.lobby) { app.lobby.fillBots = $('fillBots').checked; broadcastLobby(); } };
+
+    $('btnHost').onclick = hostGame;
+    $('btnJoin').onclick = joinGame;
+    $('joinCode').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinGame(); });
+    $('joinCode').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+    $('btnLocal').onclick = localGame;
+    $('btnStart').onclick = startGame;
+    $('btnLeaveLobby').onclick = leaveLobby;
+    $('btnCopy').onclick = copyCode;
+    $('btnRules').onclick = showRules;
+    $('btnMute').onclick = () => { app.muted = !app.muted; $('btnMute').setAttribute('aria-pressed', String(app.muted)); if (!app.muted) SFX.coin(); };
+    window.addEventListener('resize', () => { if (app.state) positionAllPawns(); });
+  }
+
+  function readMe() {
+    const n = $('nameInput').value.trim();
+    app.me.name = n || 'Aventurier';
+    return app.me;
+  }
+  function setNetStatus(msg, isError) {
+    const el = $('netStatus'); el.hidden = !msg; el.textContent = msg || ''; el.style.color = isError ? '#ffb3a7' : 'var(--cream-dim)';
+  }
+
+  function hostGame() {
+    readMe();
+    setNetStatus('Création de la salle…');
+    $('btnHost').disabled = true;
+    const code = makeCode(5);
+    app.mode = 'host';
+    app.lobby = { code, players: [{ name: app.me.name, token: app.me.token, isBot: false, peerId: 'host' }], durationMin: +$('durationSelect').value, fillBots: $('fillBots').checked, started: false };
+    app.myIdx = 0;
+    app.net = new Net({
+      onReady: () => { setNetStatus(''); showLobby(); },
+      onJoin: () => {},
+      onLeave: (id) => onPeerLeft(id),
+      onMessage: (from, msg) => hostOnMessage(from, msg),
+      onError: (msg) => { setNetStatus(msg, true); $('btnHost').disabled = false; if (!app.lobby || !app.lobby.started) { /* reste à l'accueil */ } },
+    });
+    try { app.net.host(code); } catch (e) { setNetStatus(e.message, true); $('btnHost').disabled = false; app.mode = null; }
+  }
+
+  function joinGame() {
+    readMe();
+    const code = $('joinCode').value.trim().toUpperCase();
+    if (code.length < 4) { toast('Entrez le code de la salle.'); return; }
+    setNetStatus('Connexion à la salle ' + code + '…');
+    $('btnJoin').disabled = true;
+    app.mode = 'client';
+    app.net = new Net({
+      onReady: () => { setNetStatus('Connecté, en attente de l’hôte…'); app.net.sendHost({ type: 'hello', name: app.me.name, token: app.me.token }); },
+      onMessage: (from, msg) => clientOnMessage(msg),
+      onHostLost: () => hostLost(),
+      onError: (msg) => { setNetStatus(msg, true); $('btnJoin').disabled = false; app.net && app.net.destroy(); app.net = null; app.mode = null; },
+    });
+    try { app.net.join(code); } catch (e) { setNetStatus(e.message, true); $('btnJoin').disabled = false; app.mode = null; }
+  }
+
+  function localGame() {
+    readMe();
+    const nb = +$('localBots').value;
+    app.mode = 'local';
+    app.myIdx = 0;
+    const players = [{ name: app.me.name, token: app.me.token, isBot: false }];
+    const botNames = ['Bob le tavernier', 'Murky', 'Patchwerk', 'Ysera'];
+    const freeTokens = TOKENS.filter((t) => t !== app.me.token);
+    for (let i = 0; i < nb; i++) players.push({ name: botNames[i], token: freeTokens[i], isBot: true });
+    app.lobby = { code: null, players, durationMin: +$('durationSelect').value, fillBots: false, started: true };
+    launch(players, app.lobby.durationMin);
+  }
+
+  function showLobby() {
+    $('modesPanel').hidden = true;
+    $('lobbyPanel').hidden = false;
+    renderLobby();
+  }
+  function renderLobby() {
+    const L = app.lobby; if (!L) return;
+    const isHost = app.mode === 'host';
+    $('roomCode').textContent = L.code || '—';
+    $('lobbyHint').textContent = isHost ? 'Partagez ce code à vos amis (4 joueurs max).' : 'Vous êtes connecté. L’hôte lancera la partie.';
+    $('lobbyOptions').hidden = !isHost;
+    $('btnStart').hidden = !isHost;
+    $('waitHost').hidden = isHost;
+    $('durationSelect').value = L.durationMin;
+    $('fillBots').checked = L.fillBots;
+    const ul = $('seats'); ul.innerHTML = '';
+    for (let i = 0; i < RULES.maxPlayers; i++) {
+      const p = L.players[i];
+      const li = document.createElement('li');
+      if (p) {
+        li.className = 'seat' + (i === app.myIdx ? ' me' : '');
+        li.innerHTML = `<span class="tok">${p.token}</span><span class="who">${esc(p.name)}</span><span class="tag">${p.isBot ? 'Bot' : i === 0 ? 'Hôte' : 'Joueur'}</span>`;
+      } else {
+        li.className = 'seat empty';
+        li.innerHTML = `<span class="tok">·</span><span class="who muted">Place libre</span><span class="tag">${L.fillBots ? 'Bot au lancement' : 'Vide'}</span>`;
+      }
+      ul.appendChild(li);
+    }
+    $('btnStart').disabled = !(L.players.length >= 2 || L.fillBots);
+  }
+  function broadcastLobby() {
+    renderLobby();
+    if (app.mode !== 'host' || !app.net) return;
+    app.lobby.players.forEach((p, i) => { if (p.peerId && p.peerId !== 'host') app.net.sendTo(p.peerId, { type: 'lobby', lobby: publicLobby(), yourIdx: i }); });
+  }
+  const publicLobby = () => ({ code: app.lobby.code, players: app.lobby.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot })), durationMin: app.lobby.durationMin, fillBots: app.lobby.fillBots, started: app.lobby.started });
+
+  function leaveLobby() {
+    if (app.net) app.net.destroy();
+    app.net = null; app.mode = null; app.lobby = null;
+    $('lobbyPanel').hidden = true; $('modesPanel').hidden = false; $('btnHost').disabled = false; $('btnJoin').disabled = false; setNetStatus('');
+  }
+  function copyCode() {
+    const code = app.lobby && app.lobby.code; if (!code) return;
+    const done = () => toast('Code copié : ' + code);
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(done, () => toast('Code : ' + code));
+    else toast('Code : ' + code);
+  }
+
+  // --- messages côté hôte ---
+  function hostOnMessage(from, msg) {
+    if (!msg || typeof msg !== 'object') return;
+    app.lastSeen[from] = Date.now();
+    if (msg.type === 'pong') return;
+    if (msg.type === 'hello') {
+      const L = app.lobby;
+      const existing = L.players.findIndex((p) => p.peerId === from);
+      if (existing >= 0) { app.net.sendTo(from, { type: 'lobby', lobby: publicLobby(), yourIdx: existing }); return; }
+      if (L.started) { app.net.sendTo(from, { type: 'rejected', reason: 'La partie a déjà commencé.' }); return; }
+      if (L.players.length >= RULES.maxPlayers) { app.net.sendTo(from, { type: 'rejected', reason: 'La salle est pleine (4 joueurs).' }); return; }
+      let name = String(msg.name || 'Invité').slice(0, 16);
+      if (L.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) name += ' ' + (L.players.length + 1);
+      let token = TOKENS.includes(msg.token) ? msg.token : TOKENS[L.players.length];
+      if (L.players.some((p) => p.token === token)) token = TOKENS.find((t) => !L.players.some((p) => p.token === t)) || token;
+      L.players.push({ name, token, isBot: false, peerId: from });
+      broadcastLobby();
+      SFX.coin();
+      return;
+    }
+    if (msg.type === 'action' && app.state) {
+      const idx = app.state.players.findIndex((p) => p.peerId === from);
+      if (idx < 0) return;
+      dispatch(idx, msg.action, from);
+    }
+  }
+  function onPeerLeft(id) {
+    delete app.lastSeen[id];
+    if (!app.lobby) return;
+    if (!app.lobby.started) {
+      const i = app.lobby.players.findIndex((p) => p.peerId === id);
+      if (i > 0) { app.lobby.players.splice(i, 1); broadcastLobby(); toast('Un joueur a quitté la salle.'); }
+      return;
+    }
+    if (app.state) {
+      const i = app.state.players.findIndex((p) => p.peerId === id);
+      if (i >= 0 && !app.state.players[i].isBot) {
+        app.state.players[i].isBot = true; app.state.players[i].connected = false;
+        app.state.log.push({ t: `${app.state.players[i].name} s’est déconnecté : un bot prend le relais.`, k: 'warn', n: app.state.turnCount });
+        app.state.events = [];
+        afterChange();
+      }
+    }
+  }
+
+  // --- messages côté invité ---
+  function clientOnMessage(msg) {
+    if (!msg || typeof msg !== 'object') return;
+    app.lastHostSeen = Date.now();
+    if (msg.type === 'ping') { app.net.sendHost({ type: 'pong' }); return; }
+    switch (msg.type) {
+      case 'lobby':
+        app.lobby = msg.lobby; app.myIdx = msg.yourIdx; setNetStatus('');
+        if (!app.gameShown) showLobby();
+        break;
+      case 'state':
+        app.state = msg.state; app.myIdx = app.state.players.findIndex((p) => p.peerId === app.net.peer.id);
+        if (app.myIdx < 0) app.myIdx = msg.yourIdx != null ? msg.yourIdx : 0;
+        onState();
+        break;
+      case 'error': toast(msg.msg); SFX.bad(); break;
+      case 'rejected': setNetStatus(msg.reason, true); $('btnJoin').disabled = false; app.net.destroy(); app.net = null; app.mode = null; break;
+    }
+  }
+  function hostLost() {
+    openModal(`<h2>Connexion perdue</h2><p>L’hôte a quitté la partie ou la connexion a été coupée. Il faut créer une nouvelle salle.</p><div class="btn-row"><button class="btn primary" onclick="location.reload()">Retour à l’accueil</button></div>`, { noClose: true });
+  }
+
+  // ============================================================
+  // Lancement et boucle de jeu (hôte / local)
+  // ============================================================
+  function startGame() {
+    const L = app.lobby;
+    const players = L.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot, peerId: p.peerId }));
+    if (L.fillBots) {
+      const botNames = ['Bob le tavernier', 'Murky', 'Patchwerk', 'Ysera'];
+      let k = 0;
+      while (players.length < RULES.maxPlayers) {
+        const token = TOKENS.find((t) => !players.some((p) => p.token === t));
+        players.push({ name: botNames[k++], token, isBot: true });
+      }
+    }
+    if (players.length < 2) { toast('Il faut au moins 2 joueurs (ou cochez « compléter avec des bots »).'); return; }
+    L.started = true;
+    launch(players, L.durationMin);
+  }
+
+  function launch(players, durationMin) {
+    app.state = E.createGame(players, { durationMin });
+    app.state.players.forEach((p, i) => { if (players[i].peerId) p.peerId = players[i].peerId; });
+    app.displayedPos = app.state.players.map(() => 0);
+    app.prevCash = null; app.prevCurrent = -1; app.prevTurnCount = 0; app.tradeShownKey = null;
+    app.pawnQueue = app.state.players.map(() => []);
+    app.pawnBusy = app.state.players.map(() => false);
+    clearInterval(app.tickTimer);
+    app.tickTimer = setInterval(hostTick, 1000);
+    afterChange();
+  }
+
+  function hostTick() {
+    if (!app.state || app.mode === 'client') return;
+    if (E.tick(app.state, Date.now())) afterChange();
+    else { app.sync = { remainingMs: app.state.remainingMs, at: Date.now() }; }
+  }
+
+  function dispatch(idx, action, from) {
+    const res = E.apply(app.state, idx, action, Math.random, Date.now());
+    if (!res.ok) {
+      if (from === 'me') { toast(res.error); SFX.bad(); }
+      else if (from) app.net.sendTo(from, { type: 'error', msg: res.error });
+      return;
+    }
+    afterChange();
+  }
+
+  function afterChange() {
+    const s = app.state;
+    s.remainingMs = Math.max(0, s.endsAt - Date.now());
+    if (app.mode === 'host' && app.net) {
+      s.players.forEach((p, i) => { if (p.peerId && p.peerId !== 'host') app.net.sendTo(p.peerId, { type: 'state', state: s, yourIdx: i }); });
+    }
+    onState();
+    scheduleBot();
+    scheduleAutoEnd();
+    scheduleTradeTimeout();
+  }
+
+  // Fin de tour automatique : plus de bouton, le tour passe tout seul après les animations.
+  function scheduleAutoEnd() {
+    clearTimeout(app.autoEndTimer);
+    const s = app.state;
+    if (!s || s.phase !== 'playing' || s.turn.step !== 'done') return;
+    const p = s.players[s.current];
+    if (p.isBot) return; // géré par scheduleBot
+    app.autoEndTimer = setTimeout(() => { if (app.state === s && s.turn.step === 'done') dispatch(s.current, { type: 'endTurn' }, null); }, app.animDelay + 1700);
+  }
+  // Échanges : un bot répond vite, un humain a un délai limité.
+  function scheduleTradeTimeout() {
+    clearTimeout(app.tradeTimer);
+    const s = app.state;
+    if (!s || s.phase !== 'playing' || !s.trade) return;
+    const tr = s.trade; const target = s.players[tr.to];
+    if (target.isBot) {
+      app.tradeTimer = setTimeout(() => { if (app.state === s && s.trade === tr) { const a = E.botTradeResponse(s, tr.to); if (a) dispatch(tr.to, a, null); } }, 1800);
+    } else {
+      const left = Math.max(500, RULES.tradeTimeoutMs - (Date.now() - tr.at));
+      app.tradeTimer = setTimeout(() => { if (app.state === s && s.trade === tr) dispatch(tr.to, { type: 'tradeDecline' }, null); }, left);
+    }
+  }
+
+  function scheduleBot() {
+    clearTimeout(app.botTimer);
+    const s = app.state;
+    if (!s || s.phase !== 'playing') return;
+    const p = s.players[s.current];
+    if (!p.isBot || s.trade) return;
+    const a = E.botAction(s, s.current);
+    if (!a) return;
+    const base = { roll: 1300, jailRoll: 1300, endTurn: 1100, sell: 800, buy: 1200, build: 1200 }[a.type] || 1000;
+    app.botTimer = setTimeout(() => dispatch(s.current, a, null), base + app.animDelay);
+  }
+
+  function act(action) {
+    if (!app.state) return;
+    if (app.mode === 'client') app.net.sendHost({ type: 'action', action });
+    else dispatch(app.myIdx, action, 'me');
+  }
+
+  // ============================================================
+  // Rendu
+  // ============================================================
+  function showGame() {
+    if (app.gameShown) return;
+    app.gameShown = true;
+    $('screen-home').hidden = true;
+    $('screen-game').hidden = false;
+    if (app.lobby && app.lobby.code) { $('roomChip').hidden = false; $('roomCodeTop').textContent = app.lobby.code; }
+    buildBoard();
+    if (!app.displayedPos.length) {
+      app.displayedPos = app.state.players.map((p) => p.pos);
+      app.pawnQueue = app.state.players.map(() => []);
+      app.pawnBusy = app.state.players.map(() => false);
+    }
+    buildPawns();
+    requestAnimationFrame(positionAllPawns);
+    closeModal();
+  }
+
+  function gridPos(i) {
+    if (i <= 10) return { col: 11 - i, row: 11, side: 'bottom' };
+    if (i <= 20) return { col: 1, row: 11 - (i - 10), side: 'left' };
+    if (i <= 30) return { col: 1 + (i - 20), row: 1, side: 'top' };
+    return { col: 11, row: 1 + (i - 30), side: 'right' };
+  }
+
+  const OWNABLE_TYPES = new Set(['property', 'station', 'utility']);
+  function buildBoard() {
+    if (app.boardBuilt) return;
+    app.boardBuilt = true;
+    const board = $('board');
+    for (let i = 0; i < N; i++) {
+      const b = BOARD[i];
+      const g = gridPos(i);
+      const el = document.createElement('div');
+      const corner = i % 10 === 0;
+      el.className = `tile side-${g.side} type-${b.type}${corner ? ' corner' : ''}`;
+      el.style.gridColumn = g.col; el.style.gridRow = g.row;
+      el.dataset.i = i;
+      if (b.type === 'property') el.style.setProperty('--g', GROUPS[b.group].color);
+      let body = '';
+      if (b.type === 'property') body = `<div class="band"></div><div class="body"><div class="name">${esc(shortName(i))}</div><div class="houses"></div><div class="price">${fmt(b.price)}</div></div>`;
+      else if (b.type === 'station' || b.type === 'utility') body = `<div class="body"><div class="ico">${ICONS[b.type]}</div><div class="name">${esc(shortName(i))}</div><div class="price">${fmt(b.price)}</div></div>`;
+      else if (b.type === 'chance') body = `<div class="body"><div class="ico">?</div><div class="name">Chance</div></div>`;
+      else if (b.type === 'tax') body = `<div class="body"><div class="ico">${ICONS.tax}</div><div class="name">${esc(b.name)}</div><div class="price">${fmt(b.amount)}</div></div>`;
+      else body = `<div class="body"><div class="ico">${ICONS[b.type]}</div><div class="name">${esc(b.name)}</div>${b.sub ? `<div class="sub">${esc(b.sub)}</div>` : ''}</div>`;
+      el.innerHTML = body + '<div class="owner"></div>' + (OWNABLE_TYPES.has(b.type) ? '<div class="owner-tok" hidden><span></span></div>' : '');
+      el.title = b.name;
+      el.onclick = () => onTileClick(i);
+      board.appendChild(el);
+    }
+  }
+
+  function buildPawns() {
+    const wrap = $('pawns'); wrap.innerHTML = '';
+    app.state.players.forEach((p, i) => {
+      const el = document.createElement('div');
+      el.className = 'pawn'; el.id = 'pawn' + i; el.style.setProperty('--pc', p.color);
+      el.innerHTML = `<span>${p.token}</span>`; el.title = p.name;
+      el.classList.add('notrans');
+      wrap.appendChild(el);
+      setTimeout(() => el.classList.remove('notrans'), 400);
+    });
+  }
+
+  function positionAllPawns() { app.state && app.state.players.forEach((_, i) => positionPawn(i)); }
+  function positionPawn(i) {
+    const el = $('pawn' + i); if (!el) return;
+    const pos = app.displayedPos[i];
+    const tile = $('board').querySelector(`.tile[data-i="${pos}"]`); if (!tile) return;
+    const br = $('board').getBoundingClientRect(), tr = tile.getBoundingClientRect();
+    const here = app.displayedPos.map((p, k) => (p === pos && !app.state.players[k].bankrupt ? k : -1)).filter((k) => k >= 0);
+    const k = here.indexOf(i), n = here.length;
+    const w = el.offsetWidth || 24;
+    let dx = 0, dy = 0;
+    if (n > 1) { dx = (k % 2 === 0 ? -0.55 : 0.55) * w; dy = (k < 2 ? -0.45 : 0.45) * w; if (n === 2) dy = 0; }
+    const x = tr.left - br.left + tr.width / 2 - w / 2 + dx;
+    const y = tr.top - br.top + tr.height / 2 - w / 2 + dy;
+    el.style.transform = `translate(${x}px, ${y}px)`;
+    el.classList.toggle('active', app.state.current === i && app.state.phase === 'playing');
+    el.classList.toggle('bankrupt', !!app.state.players[i].bankrupt);
+  }
+
+  // file d'animation des pions
+  function enqueueMove(ev) {
+    const i = ev.player;
+    app.pawnQueue[i].push(ev);
+    if (!app.pawnBusy[i]) runPawnQueue(i);
+  }
+  function runPawnQueue(i) {
+    const ev = app.pawnQueue[i].shift();
+    if (!ev) { app.pawnBusy[i] = false; positionAllPawns(); return; }
+    app.pawnBusy[i] = true;
+    if (ev.teleport || ev.steps === undefined) {
+      app.displayedPos[i] = ev.to; positionAllPawns(); flashTile(ev.to); SFX.land();
+      setTimeout(() => runPawnQueue(i), 350);
+      return;
+    }
+    let remaining = ev.steps;
+    const dir = ev.backward ? -1 : 1;
+    const stepFn = () => {
+      if (remaining <= 0) { flashTile(app.displayedPos[i]); SFX.land(); setTimeout(() => runPawnQueue(i), 120); return; }
+      app.displayedPos[i] = (app.displayedPos[i] + dir + N) % N; remaining--;
+      positionAllPawns(); SFX.step();
+      setTimeout(stepFn, STEP_MS);
+    };
+    stepFn();
+  }
+
+  function animateDice(d) {
+    const d1 = $('die1'), d2 = $('die2');
+    d1.classList.add('rolling'); d2.classList.add('rolling'); SFX.dice();
+    let n = 0;
+    const iv = setInterval(() => {
+      d1.firstElementChild.textContent = 1 + Math.floor(Math.random() * 6);
+      d2.firstElementChild.textContent = 1 + Math.floor(Math.random() * 6);
+      if (++n >= 6) { clearInterval(iv); d1.classList.remove('rolling'); d2.classList.remove('rolling'); d1.firstElementChild.textContent = d[0]; d2.firstElementChild.textContent = d[1]; }
+    }, 90);
+  }
+
+  function processEvents(s) {
+    let delay = 0;
+    for (const ev of s.events || []) {
+      if (ev.type === 'dice') { animateDice(ev.dice); delay += 650; }
+      if (ev.type === 'move') {
+        setTimeout(() => enqueueMove(ev), delay);
+        delay += ev.teleport || ev.steps === undefined ? 450 : ev.steps * STEP_MS + 250;
+      }
+      if (ev.type === 'card') { setTimeout(() => showChanceCard(ev.text), delay); delay += 2600; }
+      if (ev.type === 'salary') { const amt = ev.amount, pl = ev.player; setTimeout(() => { showMoneyDelta(pl, amt); flashTile(0, 'good'); }, Math.max(0, delay - 200)); }
+      if (ev.type === 'pay') { const e2 = ev; setTimeout(() => { if (typeof e2.to === 'number' && s.players[e2.to]) flashTile(s.players[e2.from].pos, 'bad'); }, delay); }
+      if (ev.type === 'buy' || ev.type === 'build') { const tl = ev.tile; setTimeout(() => flashTile(tl, 'good'), delay); }
+      if (ev.type === 'buyout') { const tl = ev.tile; setTimeout(() => { flashTile(tl, 'good'); SFX.card(); }, delay); }
+      if (ev.type === 'trade') setTimeout(SFX.card, delay);
+      if (ev.type === 'tradeOffer' && ev.to === app.myIdx) setTimeout(SFX.card, delay);
+      if (ev.type === 'tradeDeclined' && ev.from === app.myIdx) setTimeout(() => toast(`${s.players[ev.to].name} a refusé votre échange.`), delay);
+      if (ev.type === 'trade' && (ev.from === app.myIdx || ev.to === app.myIdx)) setTimeout(() => toast('Échange conclu.'), delay);
+      if (ev.type === 'jail' || ev.type === 'bankrupt') setTimeout(SFX.bad, delay);
+      if (ev.type === 'gameover') setTimeout(() => { showEnd(); SFX.win(); }, delay + 300);
+    }
+    return delay;
+  }
+
+  function onState() {
+    const s = app.state; if (!s) return;
+    showGame();
+    if (app.displayedPos.length !== s.players.length) { app.displayedPos = s.players.map((p) => p.pos); app.pawnQueue = s.players.map(() => []); app.pawnBusy = s.players.map(() => false); buildPawns(); }
+    app.sync = { remainingMs: s.remainingMs, at: Date.now() };
+    app.animDelay = processEvents(s);
+    // variations d'or (hors salaire déjà affiché pendant le déplacement)
+    if (app.prevCash && app.prevCash.length === s.players.length) {
+      const salaryFor = {};
+      (s.events || []).forEach((e) => { if (e.type === 'salary') salaryFor[e.player] = (salaryFor[e.player] || 0) + e.amount; });
+      s.players.forEach((p, i) => {
+        const d = p.cash - app.prevCash[i] - (salaryFor[i] || 0);
+        if (d) setTimeout(() => showMoneyDelta(i, d), Math.max(0, app.animDelay - 100));
+      });
+    }
+    app.prevCash = s.players.map((p) => p.cash);
+    // début de mon tour
+    const myTurnNow = s.current === app.myIdx && s.phase === 'playing';
+    if (myTurnNow && (app.prevCurrent !== s.current || app.prevTurnCount !== s.turnCount)) setTimeout(showTurnOverlay, app.animDelay);
+    app.prevCurrent = s.current; app.prevTurnCount = s.turnCount;
+    const board = $('board'); board.classList.toggle('myturn', myTurnNow); board.style.setProperty('--mycolor', s.players[app.myIdx] ? s.players[app.myIdx].color : '#f3d98b');
+    // proposition d'échange qui m'est adressée
+    if (s.trade && s.trade.to === app.myIdx) { const key = s.trade.from + ':' + s.trade.at; if (app.tradeShownKey !== key) { app.tradeShownKey = key; setTimeout(() => showTradeRequest(), app.animDelay); } }
+    else if (app.tradeShownKey && !s.trade) { app.tradeShownKey = null; if ($('modalCard').querySelector('.trade-request')) closeModal(); }
+    // resynchronise les pions qui ne bougent pas
+    s.players.forEach((p, i) => { if (!app.pawnBusy[i] && !app.pawnQueue[i].length && app.displayedPos[i] !== p.pos && !(s.events || []).some((e) => e.type === 'move' && e.player === i)) app.displayedPos[i] = p.pos; });
+    positionAllPawns();
+    renderPlayers(); renderTiles(); renderLog(); renderTimer();
+    clearTimeout(app.actionTimer);
+    renderActions(true);
+    app.actionTimer = setTimeout(() => renderActions(false), app.animDelay);
+    if (s.phase === 'ended' && !(s.events || []).some((e) => e.type === 'gameover')) showEnd();
+  }
+
+  function renderTimer() {
+    const rem = Math.max(0, app.sync.remainingMs - (Date.now() - app.sync.at));
+    const m = Math.floor(rem / 60000), sec = Math.floor((rem % 60000) / 1000);
+    const el = $('timer');
+    el.textContent = `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+    el.classList.toggle('urgent', rem < 60000 && app.state && app.state.phase === 'playing');
+  }
+  setInterval(() => { if (app.state) renderTimer(); }, 500);
+
+  function renderPlayers() {
+    const s = app.state;
+    const wrap = $('players'); wrap.innerHTML = '';
+    s.players.forEach((p, i) => {
+      const card = document.createElement('div');
+      card.className = 'player-card' + (s.current === i && s.phase === 'playing' ? ' current' : '') + (p.bankrupt ? ' bankrupt' : '');
+      card.style.setProperty('--pc', p.color);
+      const props = s.tiles.map((t, k) => (t && t.owner === i ? k : -1)).filter((k) => k >= 0);
+      const chips = props.map((k) => `<span class="chip ${BOARD[k].type}" style="--g:${groupColor(k)}" title="${esc(BOARD[k].name)}">${s.tiles[k].houses ? `<i>${s.tiles[k].houses === E.HOTEL ? 'H' : s.tiles[k].houses}</i>` : ''}</span>`).join('');
+      const meta = [p.inJail ? 'Île perdue' : BOARD[p.pos].name, p.jailCards ? `${p.jailCards} carte${p.jailCards > 1 ? 's' : ''} de sortie` : ''].filter(Boolean).join(' · ');
+      card.innerHTML = `
+        <div class="pc-tok">${p.token}</div>
+        <div><div class="pc-name">${esc(p.name)}${i === app.myIdx ? '<span class="you">Vous</span>' : ''}${p.isBot ? `<span class="bot">${p.connected === false ? 'Bot (déco)' : 'Bot'}</span>` : ''}</div><div class="pc-meta">${p.bankrupt ? 'Faillite' : esc(meta)}</div></div>
+        <div><div class="pc-cash">${fmt(p.cash)}</div><div class="pc-worth">Fortune ${fmt(E.netWorth(s, i))}</div></div>
+        <div class="pc-coins" title="Or en caisse : une pièce d’or = 250 000, une pièce d’argent = 50 000">${coinStacks(p.cash)}</div>
+        <div class="pc-props">${chips}</div>`;
+      wrap.appendChild(card);
+    });
+  }
+
+  function coinStacks(cash) {
+    if (cash <= 0) return '<span class="empty">Caisse vide</span>';
+    const gold = Math.min(40, Math.floor(cash / 250000));
+    const silver = Math.min(4, Math.floor((cash % 250000) / 50000));
+    let html = '';
+    for (let k = 0; k < gold; k += 5) html += `<div class="stack">${'<span class="coin"></span>'.repeat(Math.min(5, gold - k))}</div>`;
+    if (silver) html += `<div class="stack">${'<span class="coin silver"></span>'.repeat(silver)}</div>`;
+    return html;
+  }
+
+  function renderTiles() {
+    const s = app.state;
+    const me = app.myIdx, myTurn = s.current === me && s.phase === 'playing';
+    const step = s.turn.step;
+    let highlights = null, sellMode = false;
+    app.selectMode = null;
+    if (myTurn && step === 'teleport') { highlights = new Set(E.teleportTargets(s, me)); app.selectMode = 'teleport'; }
+    else if (myTurn && step === 'championship') { highlights = new Set(E.championshipTargets(s, me)); app.selectMode = 'championship'; }
+    else if (myTurn && step === 'debt') { highlights = new Set(s.tiles.map((t, k) => (t && t.owner === me ? k : -1)).filter((k) => k >= 0)); sellMode = true; }
+    $('board').querySelectorAll('.tile').forEach((el) => {
+      const i = +el.dataset.i;
+      const t = s.tiles[i];
+      if (t) {
+        const owned = t.owner !== null;
+        el.style.setProperty('--oc', owned ? s.players[t.owner].color : 'transparent');
+        el.classList.toggle('owned', owned);
+        const tok = el.querySelector('.owner-tok');
+        if (tok) { tok.hidden = !owned; if (owned) { tok.firstElementChild.textContent = s.players[t.owner].token; tok.title = `Propriété de ${s.players[t.owner].name}`; } }
+        const h = el.querySelector('.houses');
+        if (h) h.innerHTML = t.houses === E.HOTEL ? '<span class="house hotel"><b>HÔTEL</b></span>' : '<span class="house"></span>'.repeat(t.houses);
+        const pr = el.querySelector('.price');
+        if (pr) { if (owned) { pr.textContent = 'Loyer ' + fmtShort(E.computeRent(s, i, 7)); pr.classList.add('rent'); } else { pr.textContent = fmt(BOARD[i].price); pr.classList.remove('rent'); } }
+      }
+      let champ = el.querySelector('.champ');
+      if (s.championship && s.championship.tile === i) { if (!champ) { champ = document.createElement('div'); champ.className = 'champ'; el.appendChild(champ); } champ.textContent = '🏆'; champ.title = `Championnats : loyer x${s.championship.mult}`; }
+      else if (champ) champ.remove();
+      el.classList.toggle('highlight', !!(highlights && highlights.has(i)));
+      el.classList.toggle('sell', sellMode && !!(highlights && highlights.has(i)));
+      el.classList.toggle('dimmed', !!(highlights && !highlights.has(i) && !sellMode));
+    });
+    const cn = $('champNote');
+    if (s.championship) { cn.hidden = false; cn.textContent = `🏆 Championnats sur ${BOARD[s.championship.tile].name} — loyer x${s.championship.mult}`; } else cn.hidden = true;
+  }
+
+  function renderLog() {
+    const s = app.state; const el = $('log');
+    el.innerHTML = s.log.map((l) => `<div class="l ${l.k}">${esc(l.t)}</div>`).join('');
+    el.scrollTop = el.scrollHeight;
+  }
+
+  function offerCardHTML(i, extra) {
+    const b = BOARD[i]; const t = app.state.tiles[i];
+    let rentLine = '';
+    if (b.type === 'property') rentLine = `Loyer actuel ${fmt(E.computeRent({ ...app.state, tiles: app.state.tiles.map((x, k) => (k === i ? { owner: t.owner === null ? app.myIdx : t.owner, houses: t.houses } : x)) }, i, 7))}${t.owner !== null ? ` · ${LEVEL_LABELS[t.houses]}` : ''}`;
+    else if (b.type === 'station') rentLine = `Loyer ${fmt(RULES.stationRents[0])} → ${fmt(RULES.stationRents[3])} selon le nombre de serviteurs neutres`;
+    else rentLine = `Loyer = dés x ${fmt(RULES.utilityMult[0])} (x ${fmt(RULES.utilityMult[1])} avec les deux)`;
+    return `<div class="offer-card" style="--g:${groupColor(i)}"><div class="oc-band">${esc(b.name)}</div><div class="oc-body"><div class="oc-type">${typeLabel(i)}</div><div class="oc-price">${fmt(b.price)}</div><div class="oc-rent">${rentLine}</div>${extra || ''}</div></div>`;
+  }
+
+  function payNoteHTML(s, lp) {
+    if (!lp) return '';
+    const me = app.myIdx;
+    const from = s.players[lp.from]; const to = typeof lp.to === 'number' ? s.players[lp.to] : null;
+    const toName = to ? to.name : lp.to === 'split' ? 'les autres joueurs' : 'la banque';
+    if (lp.from === me) return `<div class="pay-note">Vous payez ${fmt(lp.amount)} à ${esc(toName)}<small>${esc(lp.reason)}</small></div>`;
+    if (to && lp.to === me) return `<div class="pay-note gain">${esc(from.name)} vous paie ${fmt(lp.amount)}<small>${esc(lp.reason)}</small></div>`;
+    return `<div class="pay-note" style="color:var(--cream)">${esc(from.name)} paie ${fmt(lp.amount)} à ${esc(toName)}<small>${esc(lp.reason)}</small></div>`;
+  }
+  function levelButtons(opts, i, kind) {
+    const b = BOARD[i];
+    return `<div class="levels">${opts.map((o) => {
+      const name = kind === 'buy' ? (o.houses === 0 ? 'Terrain nu' : `+ ${o.houses} maison${o.houses > 1 ? 's' : ''}`) : (o.houses === E.HOTEL ? 'Hôtel' : `→ ${LEVEL_LABELS[o.houses]}`);
+      const pips = o.houses === E.HOTEL ? '<i class="h"></i>' : '<i></i>'.repeat(o.houses);
+      const rentNow = b.type === 'property' ? b.rents[o.houses] : null;
+      const hint = o.locked ? 'Après un passage par la Taverne' : !o.affordable ? 'Pas assez d’or' : rentNow !== null ? `Loyer ${fmt(rentNow)}${o.houses === E.HOTEL ? ' · imprenable' : ''}` : '';
+      return `<button class="lvl${o.locked ? ' locked' : ''}" data-houses="${o.houses}" ${o.locked || !o.affordable ? 'disabled' : ''} title="${hint}"><span class="lv-name">${name}</span><span class="lv-houses">${pips}</span><span class="lv-cost">${fmt(o.cost)}</span><span class="lv-rent">${hint}</span></button>`;
+    }).join('')}</div>`;
+  }
+
+  function renderActions(pending) {
+    const s = app.state; const el = $('actions'); const banner = $('turnBanner');
+    const me = app.myIdx; const p = s.players[s.current]; const t = s.turn;
+    const myTurn = s.current === me && s.phase === 'playing';
+    if (s.phase === 'ended') { banner.innerHTML = 'Partie terminée'; banner.classList.remove('mine'); el.innerHTML = `<div class="btn-row"><button class="btn primary" id="btnShowEnd">Voir le classement</button></div>`; $('btnShowEnd').onclick = showEnd; return; }
+    banner.innerHTML = myTurn ? `À vous de jouer, <b>${esc(p.name)}</b>` : `Au tour de <b>${esc(p.name)}</b>${p.isBot ? ' (bot)' : ''}`;
+    banner.classList.toggle('mine', myTurn);
+    if (pending) { el.innerHTML = `<div class="prompt muted">…</div>`; return; }
+    const lastPay = t.lastPay && (['done', 'buyout', 'debt'].includes(t.step) || (t.step === 'roll' && t.rolledThisTurn)) ? t.lastPay : null;
+    if (!myTurn) {
+      if (s.trade && s.trade.from === s.current && s.trade.to !== me) { el.innerHTML = `<div class="prompt muted">${esc(p.name)} propose un échange à ${esc(s.players[s.trade.to].name)}…</div>`; return; }
+      if (s.trade && s.trade.to === me) { el.innerHTML = `<div class="prompt">${esc(p.name)} vous propose un échange.</div><div class="btn-row"><button class="btn primary" id="btnSeeTrade">Voir la proposition</button></div>`; $('btnSeeTrade').onclick = showTradeRequest; return; }
+      const what = { roll: 'lance les dés', jail: 'est naufragé sur l’Île perdue', buy: `hésite à acheter ${t.offer != null ? BOARD[t.offer].name : ''}`, build: 'envisage de construire', buyout: `peut racheter ${t.offer != null ? BOARD[t.offer].name : ''}`, teleport: 'choisit une destination', championship: 'organise les Championnats', debt: 'doit vendre pour payer sa dette', done: 'termine son tour' }[t.step] || '';
+      el.innerHTML = `${payNoteHTML(s, lastPay)}<div class="prompt muted">${esc(p.name)} ${what}…<small>Cliquez sur une case pour voir ses loyers.</small></div>`;
+      return;
+    }
+    const meP = s.players[me];
+    let html = '';
+    switch (t.step) {
+      case 'roll': {
+        if (s.trade && s.trade.from === me) {
+          html = `<div class="prompt">Proposition envoyée à <b>${esc(s.players[s.trade.to].name)}</b>.<small>En attente de sa réponse…</small></div><div class="btn-row"><button class="btn" data-act="tradeCancel">Retirer la proposition</button></div>`;
+          break;
+        }
+        const others = E.alive(s).filter((k) => k !== me);
+        html = `<div class="prompt">${t.doubles > 0 ? 'Double ! Relancez les dés.' : 'Lancez les dés.'}<small>Avant de lancer : cliquez sur une de vos cases pour la revendre${others.length ? ', ou proposez un échange' : ''}.</small></div>
+          <button class="btn primary big" data-act="roll">🎲 Lancer les dés</button>${others.length ? '<button class="btn ghost trade-btn" id="btnTrade">🤝 Proposer un échange</button>' : ''}`;
+        break;
+      }
+      case 'jail':
+        html = `<div class="prompt">Vous êtes naufragé sur l’Île perdue.<small>Essai ${meP.jailTurns + 1}/${RULES.jailMaxTurns} : faites un double pour partir, ou payez ${fmt(RULES.jailFee)}.</small></div>
+          <div class="btn-row"><button class="btn primary" data-act="jailRoll">🎲 Tenter un double</button><button class="btn" data-act="jailPay" ${meP.cash < RULES.jailFee ? 'disabled' : ''}>Payer ${fmt(RULES.jailFee)}</button>${meP.jailCards > 0 ? '<button class="btn" data-act="jailCard">Utiliser une carte de sortie</button>' : ''}</div>`;
+        break;
+      case 'buy': {
+        const i = t.offer; const opts = E.buyOptions(s, me, i);
+        html = `${offerCardHTML(i)}<div class="prompt" style="font-size:1em">Acheter ${esc(BOARD[i].name)}${BOARD[i].type === 'property' ? ' — choisissez le niveau' : ''} :</div>${levelButtons(opts, i, 'buy')}<div class="btn-row"><button class="btn" data-act="skipBuy">Passer</button></div>`;
+        break;
+      }
+      case 'build': {
+        const i = t.offer; const h = s.tiles[i].houses; const opts = E.buildOptions(s, me, i);
+        html = `${offerCardHTML(i)}<div class="prompt" style="font-size:1em">Vous êtes chez vous (${LEVEL_LABELS[h].toLowerCase()}) — construire ?${h === RULES.maxHouses ? '<small>L’hôtel ne peut jamais être racheté.</small>' : ''}</div>${levelButtons(opts, i, 'build')}<div class="btn-row"><button class="btn" data-act="skipBuild">Passer</button></div>`;
+        break;
+      }
+      case 'buyout': {
+        const i = t.offer; const owner = s.players[s.tiles[i].owner]; const price = t.buyoutPrice || E.buyoutPrice(s, i);
+        html = `${payNoteHTML(s, lastPay)}${offerCardHTML(i)}<div class="prompt" style="font-size:1em">Racheter ${esc(BOARD[i].name)} à <b style="color:${owner.color}">${esc(owner.name)}</b> ?<small>${RULES.buyoutMult}x ce qu’il a investi (${fmt(E.tileValue(s, i))}). L’or lui est versé, les maisons restent.</small></div>
+          <div class="btn-row"><button class="btn primary" data-act="buyout" ${meP.cash < price ? 'disabled' : ''}>Racheter — ${fmt(price)}</button><button class="btn" data-act="skipBuyout">Passer</button></div>`;
+        break;
+      }
+      case 'teleport':
+        html = `<div class="prompt">Le Portail s’ouvre ! Choisissez sur le plateau une case libre ou à vous.<small>Coût ${fmt(RULES.worldTourFee)}. Vous avancez toujours vers l’avant : passer par la Taverne rapporte ${fmt(RULES.salary)}.</small></div><div class="btn-row"><button class="btn" data-act="skipTeleport">Refermer le Portail</button></div>`;
+        break;
+      case 'championship': {
+        const next = Math.min(RULES.championshipMaxMult, s.championship ? s.championship.mult + 1 : 2);
+        html = `<div class="prompt">Organisez les Championnats sur une de vos cases (en surbrillance).<small>Coût ${fmt(RULES.championshipFee)} — le loyer y sera multiplié par ${next}.</small></div><div class="btn-row"><button class="btn" data-act="skipChampionship">Passer</button></div>`;
+        break;
+      }
+      case 'debt': {
+        const d = t.debt; const to = typeof d.to === 'number' ? s.players[d.to].name : d.to === 'split' ? 'aux autres joueurs' : 'à la banque';
+        const canCover = meP.cash + E.liquidationValue(s, me) >= d.amount;
+        html = `<div class="prompt">Vous devez <b>${fmt(d.amount)}</b> ${typeof d.to === 'number' ? 'à ' + esc(to) : to}.<small>Il vous manque ${fmt(d.amount - meP.cash)}. Cliquez sur vos cases (en rouge) pour revendre maisons puis propriétés.</small></div>
+          <div class="btn-row"><button class="btn danger" data-act="declareBankrupt" ${canCover ? 'disabled title="Vous pouvez encore vendre pour payer"' : ''}>Déclarer faillite</button></div>`;
+        break;
+      }
+      case 'done':
+        html = `${payNoteHTML(s, lastPay)}<div class="prompt muted">Tour terminé.<small>Le tour passe au joueur suivant…</small></div>`;
+        break;
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => { act({ type: b.dataset.act }); }));
+    el.querySelectorAll('.lvl[data-houses]').forEach((b) => (b.onclick = () => { act({ type: t.step === 'buy' ? 'buy' : 'build', houses: +b.dataset.houses }); }));
+    const tb = el.querySelector('#btnTrade'); if (tb) tb.onclick = openTradeComposer;
+  }
+
+  // ============================================================
+  // Échanges
+  // ============================================================
+  function tradeChip(i, pressed) {
+    const s = app.state; const t = s.tiles[i];
+    return `<button type="button" class="tchip" data-tile="${i}" aria-pressed="${pressed ? 'true' : 'false'}" style="--g:${groupColor(i)}"><i></i>${esc(BOARD[i].name)}${t.houses ? ` (${LEVEL_LABELS[t.houses].toLowerCase()})` : ''}<small>${fmt(E.tileValue(s, i))}</small></button>`;
+  }
+  function openTradeComposer() {
+    const s = app.state; const me = app.myIdx;
+    const others = E.alive(s).filter((k) => k !== me);
+    if (!others.length) return;
+    let partner = others[0];
+    const sel = { give: new Set(), get: new Set() };
+    const render = () => {
+      const o = s.players[partner];
+      const mine = s.tiles.map((t, k) => (t && t.owner === me ? k : -1)).filter((k) => k >= 0);
+      const theirs = s.tiles.map((t, k) => (t && t.owner === partner ? k : -1)).filter((k) => k >= 0);
+      const c = openModal(`<h2>🤝 Proposer un échange</h2>
+        <div class="trade-partners">${others.map((k) => `<button type="button" class="btn small" data-partner="${k}" aria-pressed="${k === partner}">${s.players[k].token} ${esc(s.players[k].name)}</button>`).join('')}</div>
+        <div class="trade-grid">
+          <div class="trade-col"><h4>Vous donnez</h4><div class="tchips" id="giveChips">${mine.length ? mine.map((k) => tradeChip(k, sel.give.has(k))).join('') : '<p class="muted">Aucune case</p>'}</div><label class="trade-cash">Or <input type="number" id="giveCash" min="0" step="10000" max="${s.players[me].cash}" placeholder="0" /></label></div>
+          <div class="trade-col"><h4>${esc(o.name)} donne</h4><div class="tchips" id="getChips">${theirs.length ? theirs.map((k) => tradeChip(k, sel.get.has(k))).join('') : '<p class="muted">Aucune case</p>'}</div><label class="trade-cash">Or <input type="number" id="getCash" min="0" step="10000" max="${o.cash}" placeholder="0" /></label></div>
+        </div>
+        <p class="muted" style="font-size:var(--text-xs)">${esc(o.name)} aura ${Math.round(RULES.tradeTimeoutMs / 1000)} s pour répondre. Les maisons suivent la case.</p>
+        <div class="btn-row" style="margin-top:12px"><button class="btn primary" id="sendTrade">Envoyer la proposition</button><button class="btn" data-close>Annuler</button></div>`);
+      c.querySelectorAll('[data-partner]').forEach((b) => (b.onclick = () => { partner = +b.dataset.partner; sel.get.clear(); render(); }));
+      c.querySelectorAll('#giveChips .tchip').forEach((b) => (b.onclick = () => { const k = +b.dataset.tile; sel.give.has(k) ? sel.give.delete(k) : sel.give.add(k); b.setAttribute('aria-pressed', String(sel.give.has(k))); }));
+      c.querySelectorAll('#getChips .tchip').forEach((b) => (b.onclick = () => { const k = +b.dataset.tile; sel.get.has(k) ? sel.get.delete(k) : sel.get.add(k); b.setAttribute('aria-pressed', String(sel.get.has(k))); }));
+      c.querySelector('#sendTrade').onclick = () => {
+        const give = { tiles: [...sel.give], cash: Math.max(0, Math.floor(+c.querySelector('#giveCash').value || 0)) };
+        const get = { tiles: [...sel.get], cash: Math.max(0, Math.floor(+c.querySelector('#getCash').value || 0)) };
+        if (!give.tiles.length && !get.tiles.length && !give.cash && !get.cash) { toast('La proposition est vide.'); return; }
+        closeModal();
+        act({ type: 'tradeOffer', to: partner, give, get });
+      };
+    };
+    render();
+  }
+  function showTradeRequest() {
+    const s = app.state; const tr = s.trade; if (!tr || tr.to !== app.myIdx) return;
+    const from = s.players[tr.from];
+    const side = (x) => [x.tiles.map((i) => `${esc(BOARD[i].name)}${s.tiles[i].houses ? ` (${LEVEL_LABELS[s.tiles[i].houses].toLowerCase()})` : ''} <small class="muted">${fmt(E.tileValue(s, i))}</small>`).join('<br>'), x.cash ? `${fmt(x.cash)} d’or` : ''].filter(Boolean).join('<br>') || '<span class="muted">rien</span>';
+    const left = Math.max(0, Math.round((RULES.tradeTimeoutMs - (Date.now() - tr.at)) / 1000));
+    const c = openModal(`<div class="trade-request"><h2>🤝 ${esc(from.name)} vous propose un échange</h2>
+      <div class="trade-grid"><div class="trade-col"><h4>Vous recevez</h4><div>${side(tr.give)}</div></div><div class="trade-col"><h4>Vous donnez</h4><div>${side(tr.get)}</div></div></div>
+      <p class="muted" style="font-size:var(--text-xs)">Sans réponse dans ${left} s, la proposition est refusée.</p>
+      <div class="btn-row"><button class="btn primary" id="accTrade">Accepter</button><button class="btn danger" id="decTrade">Refuser</button></div></div>`, { noClose: true });
+    c.querySelector('#accTrade').onclick = () => { closeModal(); act({ type: 'tradeAccept' }); };
+    c.querySelector('#decTrade').onclick = () => { closeModal(); act({ type: 'tradeDecline' }); };
+  }
+
+  // ============================================================
+  // Interactions plateau
+  // ============================================================
+  function onTileClick(i) {
+    const s = app.state; if (!s) return;
+    const me = app.myIdx; const myTurn = s.current === me && s.phase === 'playing';
+    const b = BOARD[i]; const t = s.tiles[i];
+    if (myTurn && app.selectMode === 'teleport' && E.teleportTargets(s, me).includes(i)) {
+      const c = openModal(`<h2>Voyager vers ${esc(b.name)} ?</h2><p>Le Portail vous y dépose pour ${fmt(RULES.worldTourFee)}. ${t.owner === null ? 'La case est libre : vous pourrez l’acheter.' : 'C’est chez vous : vous pourrez y construire.'}</p><div class="btn-row"><button class="btn primary" id="okTp">Voyager</button><button class="btn" data-close>Annuler</button></div>`);
+      c.querySelector('#okTp').onclick = () => { closeModal(); act({ type: 'teleport', tile: i }); };
+      return;
+    }
+    if (myTurn && app.selectMode === 'championship' && E.championshipTargets(s, me).includes(i)) {
+      const next = Math.min(RULES.championshipMaxMult, s.championship ? s.championship.mult + 1 : 2);
+      const c = openModal(`<h2>Championnats sur ${esc(b.name)} ?</h2><p>Pour ${fmt(RULES.championshipFee)}, le loyer de cette case sera multiplié par ${next} (loyer actuel ${fmt(E.computeRent(s, i, 7))} → ${fmt(E.computeRent({ ...s, championship: null }, i, 7) * next)}).</p><div class="btn-row"><button class="btn primary" id="okCh">Organiser</button><button class="btn" data-close>Annuler</button></div>`);
+      c.querySelector('#okCh').onclick = () => { closeModal(); act({ type: 'championship', tile: i }); };
+      return;
+    }
+    showTileSheet(i);
+  }
+
+  function showTileSheet(i) {
+    const s = app.state; const b = BOARD[i]; const t = s.tiles[i]; const me = app.myIdx;
+    const myTurn = s.current === me && s.phase === 'playing';
+    let html = `<div class="prop-sheet"><div class="ps-head" style="--g:${groupColor(i)}">${esc(b.name)}</div>`;
+    if (b.type === 'property') {
+      const owner = t.owner !== null ? s.players[t.owner] : null;
+      html += `<p>${GROUPS[b.group].label} · Prix ${fmt(b.price)} · Maison ${fmt(GROUPS[b.group].houseCost)} · Hôtel ${fmt(GROUPS[b.group].houseCost * RULES.hotelCostMult)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${s.championship && s.championship.tile === i ? ` · 🏆 Championnats x${s.championship.mult}` : ''}</p>`;
+      html += '<table>' + b.rents.map((r, k) => `<tr class="${owner && t.houses === k ? 'now' : ''}"><td>${LEVEL_LABELS[k]}${k ? ` <small class="muted">(+${fmt(E.levelCost(i, 0, k))})</small>` : ''}</td><td>${fmt(r)}</td></tr>`).join('') + `<tr><td>Type complet, terrain nu</td><td>${fmt(b.rents[0] * 2)}</td></tr></table>`;
+      if (owner && t.owner !== me) html += `<p>${t.houses === E.HOTEL ? 'Hôtel : cette case ne peut pas être rachetée.' : `Rachat possible en y tombant : <b>${fmt(E.buyoutPrice(s, i))}</b> (${RULES.buyoutMult}x l’investissement de ${esc(owner.name)}).`}</p>`;
+    } else if (b.type === 'station') {
+      const owner = t.owner !== null ? s.players[t.owner] : null;
+      html += `<p>Serviteur neutre · Prix ${fmt(b.price)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}</p><table>${RULES.stationRents.map((r, k) => `<tr class="${owner && E.countOwned(s, t.owner, 'station') === k + 1 ? 'now' : ''}"><td>${k + 1} serviteur${k ? 's' : ''} neutre${k ? 's' : ''}</td><td>${fmt(r)}</td></tr>`).join('')}</table>`;
+    } else if (b.type === 'utility') {
+      const owner = t.owner !== null ? s.players[t.owner] : null;
+      html += `<p>Service · Prix ${fmt(b.price)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}</p><table><tr><td>1 service</td><td>dés x ${fmt(RULES.utilityMult[0])}</td></tr><tr><td>2 services</td><td>dés x ${fmt(RULES.utilityMult[1])}</td></tr></table>`;
+    } else {
+      const desc = {
+        start: `Recevez ${fmt(RULES.salary)} à chaque passage.`,
+        jail: `Naufragé ! Payez ${fmt(RULES.jailFee)} ou faites un double pour repartir (3 essais max). On y arrive en tombant dessus, par une carte Chance ou après 3 doubles.`,
+        championship: `Pour ${fmt(RULES.championshipFee)}, organisez les Championnats sur une de vos cases : son loyer est multiplié (x2, puis x3… jusqu’à x${RULES.championshipMaxMult}). Un seul lieu à la fois sur le plateau.`,
+        worldtour: `Pour ${fmt(RULES.worldTourFee)}, le Portail vous emmène (toujours vers l’avant) sur n’importe quelle case libre ou à vous. Passer par la Taverne rapporte ${fmt(RULES.salary)}.`,
+        tax: `Payez ${fmt(b.amount)} à la banque.`,
+        chance: 'Tirez une carte Chance : bonne ou mauvaise surprise.',
+      }[b.type];
+      html += `<p>${desc}</p>`;
+    }
+    html += '</div>';
+    if (t && t.owner === me && myTurn && ['roll', 'debt', 'jail', 'buy', 'build', 'buyout'].includes(s.turn.step)) {
+      const v = E.sellValue(s, i);
+      const what = b.type === 'property' && t.houses > 0 ? (t.houses === E.HOTEL ? 'l’hôtel' : 'une maison') : 'la propriété';
+      html += `<div class="btn-row" style="margin-top:14px"><button class="btn danger" id="sellBtn">Revendre ${what} — +${fmt(v)}</button></div>`;
+    }
+    const c = openModal(html);
+    const sb = c.querySelector('#sellBtn');
+    if (sb) sb.onclick = () => { closeModal(); act({ type: 'sell', tile: i }); };
+  }
+
+  function showChanceCard(text) {
+    SFX.card();
+    openModal(`<div class="chance-card"><div class="big">?</div><h2>Carte Chance</h2><p>${esc(text)}</p><div class="btn-row"><button class="btn primary" data-close>OK</button></div></div>`);
+    clearTimeout(openModal._auto);
+    openModal._auto = setTimeout(() => { if (!$('modal').hidden && $('modalCard').querySelector('.chance-card')) closeModal(); }, 2500);
+  }
+
+  function showEnd() {
+    const s = app.state; if (!s || !s.ranking) return;
+    const isHost = app.mode !== 'client';
+    const reason = s.endReason === 'time' ? 'Le chrono a sonné !' : 'Tous les adversaires ont fait faillite !';
+    const list = s.ranking.map((r, k) => `<li><span class="rk">${k + 1}</span><span class="tk">${r.token}</span><span class="nm">${esc(r.name)}${r.bankrupt ? '<small>Faillite</small>' : `<small>${r.props} case${r.props > 1 ? 's' : ''} · ${fmt(r.cash)} en or</small>`}</span><span class="wt">${r.bankrupt ? '—' : fmt(r.worth)}</span></li>`).join('');
+    openModal(`<h2>🏆 ${esc(s.ranking[0].name)} remporte la taverne !</h2><p>${reason} Classement à la fortune totale (or + valeur des cases et constructions).</p><ul class="ranking">${list}</ul>
+      <div class="btn-row">${isHost ? '<button class="btn primary" id="againBtn">Rejouer avec les mêmes joueurs</button>' : '<p class="muted">L’hôte peut relancer une partie.</p>'}<button class="btn" data-close>Fermer</button></div>`);
+    const ab = $('againBtn');
+    if (ab) ab.onclick = () => { closeModal(); const players = s.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot, peerId: p.peerId })); launch(players, app.lobby ? app.lobby.durationMin : RULES.defaultDurationMin); };
+  }
+
+  function showRules() {
+    openModal(`<div class="rules"><h2>Règles de la taverne</h2>
+      <h3>But</h3><ul><li>Quand le chrono sonne, le joueur le plus riche gagne : or + valeur des cases et constructions.</li><li>La partie s’arrête aussi si tous les autres joueurs font faillite.</li></ul>
+      <h3>Tour de jeu</h3><ul><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue. Le tour passe automatiquement au suivant.</li><li><b>Case libre</b> : achetez-la directement au niveau voulu — terrain nu, ou avec 1, 2 ou 3 maisons d’un coup. La 3e maison se débloque après un premier passage par la Taverne.</li><li><b>Case à vous</b> : montez de niveau (jusqu’à 3 maisons). Avec 3 maisons, en y retombant, construisez l’<b>hôtel</b> : loyer maximal et case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour ${RULES.buyoutMult}x ce que son propriétaire a investi (sauf hôtel). L’or lui est versé et les maisons restent.</li><li>Posséder tous les serviteurs d’un type double le loyer des terrains nus.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li><li><b>Échanges</b> : avant de lancer les dés, proposez cases et or à un adversaire ; il a ${Math.round(RULES.tradeTimeoutMs / 1000)} s pour accepter.</li></ul>
+      <h3>Cases spéciales</h3><ul><li><b>Chance</b> : tirez une carte (gains, pertes, déplacements, carte de sortie…).</li><li><b>Île perdue</b> : payez ${fmt(RULES.jailFee)} ou faites un double pour partir (3 essais).</li><li><b>Championnats</b> : pour ${fmt(RULES.championshipFee)}, le loyer d’une de vos cases est multiplié (x2, x3… jusqu’à x${RULES.championshipMaxMult}).</li><li><b>Tour du monde</b> : pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous ; si vous passez par la Taverne, vous touchez les ${fmt(RULES.salary)}.</li><li><b>Serviteurs neutres</b> (Brann, Drakkari, Titus, Leeroy) : loyer de ${fmt(RULES.stationRents[0])} à ${fmt(RULES.stationRents[3])} selon le nombre possédé. Ni maisons ni rachat.</li><li><b>Services</b> (Sombre Don, Bibelot) : loyer = dés x ${fmt(RULES.utilityMult[0])}, ou x ${fmt(RULES.utilityMult[1])} avec les deux.</li></ul>
+      <h3>Dettes</h3><ul><li>Si vous ne pouvez pas payer, revendez maisons puis propriétés à la banque à 50 % de leur valeur. Sinon, faillite : vos biens vont au créancier.</li></ul>
+      <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-close>Compris</button></div></div>`);
+  }
+
+  // ============================================================
+  initHome();
+  window.TT_DEBUG = Object.assign(app, { dispatch, afterChange, E });
+})();
