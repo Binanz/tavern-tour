@@ -96,9 +96,9 @@
   }
   function closeModal() { $('modal').hidden = true; clearTimeout(openModal._auto); }
   const esc = (s) => String(s).replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
-  const groupColor = (i) => (BOARD[i].type === 'property' ? GROUPS[BOARD[i].group].color : BOARD[i].type === 'station' ? '#8b8b8b' : '#5c88a8');
-  const typeLabel = (i) => (BOARD[i].type === 'property' ? GROUPS[BOARD[i].group].label : BOARD[i].type === 'station' ? 'Serviteur neutre' : 'Service');
-  const ICONS = { start: '🍺', jail: '🏝️', championship: '🏆', worldtour: '🌀', tax: '💰', station: '🛡️', utility: '🔮', chance: '?' };
+  const groupColor = (i) => (BOARD[i].type === 'property' ? GROUPS[BOARD[i].group].color : '#5c88a8');
+  const typeLabel = (i) => (BOARD[i].type === 'property' ? GROUPS[BOARD[i].group].label : BOARD[i].type === 'station' ? 'Serviteur neutre' : 'Case spéciale');
+  const ICONS = { start: '🍺', jail: '🏝️', championship: '🏆', worldtour: '🌀', tax: '💰', chance: '?', station: '🛡️' };
   const shortName = (i) => BOARD[i].short || BOARD[i].name;
   // format compact pour les cases : 540 k, 1,05 M
   const fmtShort = (n) => (n >= 1e6 ? (Math.round(n / 10000) / 100).toLocaleString('fr-FR') + ' M' : Math.round(n / 1000).toLocaleString('fr-FR') + ' k');
@@ -619,13 +619,13 @@
   }
 
   function gridPos(i) {
-    if (i <= 10) return { col: 11 - i, row: 11, side: 'bottom' };
-    if (i <= 20) return { col: 1, row: 11 - (i - 10), side: 'left' };
-    if (i <= 30) return { col: 1 + (i - 20), row: 1, side: 'top' };
-    return { col: 11, row: 1 + (i - 30), side: 'right' };
+    if (i <= 8) return { col: 9 - i, row: 9, side: 'bottom' };
+    if (i <= 15) return { col: 1, row: 17 - i, side: 'left' };
+    if (i <= 24) return { col: i - 15, row: 1, side: 'top' };
+    return { col: 9, row: i - 23, side: 'right' };
   }
 
-  const OWNABLE_TYPES = new Set(['property', 'station', 'utility']);
+  const OWNABLE_TYPES = new Set(['property', 'station']);
   function buildBoard() {
     if (app.boardBuilt) return;
     app.boardBuilt = true;
@@ -634,16 +634,17 @@
       const b = BOARD[i];
       const g = gridPos(i);
       const el = document.createElement('div');
-      const corner = i % 10 === 0;
+      const corner = [0, 8, 16, 24].includes(i);
       el.className = `tile side-${g.side} type-${b.type}${corner ? ' corner' : ''}`;
       el.style.gridColumn = g.col; el.style.gridRow = g.row;
       el.dataset.i = i;
       if (b.type === 'property') el.style.setProperty('--g', GROUPS[b.group].color);
       let body = '';
       if (b.type === 'property') body = `<div class="band"></div><div class="body"><div class="name">${esc(shortName(i))}</div><div class="houses"></div><div class="price">${fmt(b.price)}</div></div>`;
-      else if (b.type === 'station' || b.type === 'utility') body = `<div class="body"><div class="ico">${ICONS[b.type]}</div><div class="name">${esc(shortName(i))}</div><div class="price">${fmt(b.price)}</div></div>`;
+      else if (b.type === 'station') body = `<div class="body"><div class="ico">${ICONS.station}</div><div class="name">${esc(shortName(i))}</div><div class="price">${fmt(b.price)}</div></div>`;
       else if (b.type === 'chance') body = `<div class="body"><div class="ico">?</div><div class="name">Chance</div></div>`;
       else if (b.type === 'tax') body = `<div class="body"><div class="ico">${ICONS.tax}</div><div class="name">${esc(b.name)}</div><div class="price">${fmt(b.amount)}</div></div>`;
+      else if (b.type === 'blank') body = `<div class="body"><div class="ico">—</div><div class="name">${esc(b.name || 'Sans type')}</div></div>`;
       else body = `<div class="body"><div class="ico">${ICONS[b.type]}</div><div class="name">${esc(b.name)}</div>${b.sub ? `<div class="sub">${esc(b.sub)}</div>` : ''}</div>`;
       el.innerHTML = body + (OWNABLE_TYPES.has(b.type) ? '<div class="owner-pin" hidden><span class="owner-line"></span><span class="owner-bubble"><span></span></span></div>' : '');
       el.title = b.name;
@@ -809,7 +810,7 @@
       card.className = 'player-card' + (s.current === i && s.phase === 'playing' ? ' current' : '') + (p.bankrupt ? ' bankrupt' : '');
       card.style.setProperty('--pc', p.color);
       const props = s.tiles.map((t, k) => (t && t.owner === i ? k : -1)).filter((k) => k >= 0);
-      const chips = props.map((k) => `<span class="chip ${BOARD[k].type}" style="--g:${groupColor(k)}" title="${esc(BOARD[k].name)} — ${LEVEL_LABELS[s.tiles[k].houses]}">${s.tiles[k].houses ? `<i>${s.tiles[k].houses === E.HOTEL ? 'D' : s.tiles[k].houses}</i>` : ''}</span>`).join('');
+      const chips = props.map((k) => `<span class="chip ${BOARD[k].type}" style="--g:${groupColor(k)}" title="${esc(BOARD[k].name)} — ${BOARD[k].type === 'property' ? LEVEL_LABELS[s.tiles[k].houses] : typeLabel(k)}">${s.tiles[k].houses ? `<i>${s.tiles[k].houses === E.HOTEL ? 'D' : s.tiles[k].houses}</i>` : ''}</span>`).join('');
       const meta = [p.inJail ? 'Île perdue' : BOARD[p.pos].name, p.jailCards ? `${p.jailCards} carte${p.jailCards > 1 ? 's' : ''} de sortie` : ''].filter(Boolean).join(' · ');
       card.innerHTML = `
         <div class="pc-tok">${p.token}</div>
@@ -887,8 +888,7 @@
     const b = BOARD[i]; const t = app.state.tiles[i];
     let rentLine = '';
     if (b.type === 'property') rentLine = `Loyer actuel ${fmt(E.computeRent({ ...app.state, tiles: app.state.tiles.map((x, k) => (k === i ? { owner: t.owner === null ? app.myIdx : t.owner, houses: t.houses } : x)) }, i, 7))}${t.owner !== null ? ` · ${LEVEL_LABELS[t.houses]}` : ''}`;
-    else if (b.type === 'station') rentLine = `Loyer ${fmt(RULES.stationRents[0])} → ${fmt(RULES.stationRents[3])} selon le nombre de serviteurs neutres`;
-    else rentLine = `Loyer = dés x ${fmt(RULES.utilityMult[0])} (x ${fmt(RULES.utilityMult[1])} avec les deux)`;
+    else rentLine = `Loyer ${fmt(RULES.stationRents[0])} → ${fmt(RULES.stationRents[3])} selon les serviteurs neutres possédés`;
     return `<div class="offer-card" style="--g:${groupColor(i)}"><div class="oc-band">${esc(b.name)}</div><div class="oc-body"><div class="oc-type">${typeLabel(i)}</div><div class="oc-price">${fmt(b.price)}</div><div class="oc-rent">${rentLine}</div>${extra || ''}</div></div>`;
   }
 
@@ -906,7 +906,7 @@
     return `<div class="levels">${opts.map((o) => {
       const name = o.houses === 0 ? 'Achat' : LEVEL_LABELS[o.houses];
       const pips = o.houses === E.HOTEL ? '<i class="gold"></i>' : '<i></i>'.repeat(o.houses);
-      const rentNow = b.type === 'property' ? b.rents[o.houses] : null;
+      const rentNow = b.type === 'property' ? b.rents[o.houses] : b.type === 'station' ? RULES.stationRents[Math.min(RULES.stationRents.length - 1, E.countOwned(app.state, app.myIdx, 'station'))] : null;
       const hint = o.locked ? 'Après un passage par la Taverne' : !o.affordable ? 'Pas assez d’or' : rentNow !== null ? `Loyer ${fmt(rentNow)}${o.houses === E.HOTEL ? ' · imprenable' : ''}` : '';
       return `<button class="lvl${o.locked ? ' locked' : ''}" data-houses="${o.houses}" ${o.locked || !o.affordable ? 'disabled' : ''} title="${hint}"><span class="lv-name">${name}</span><span class="lv-houses">${pips}</span><span class="lv-cost">${fmt(o.cost)}</span><span class="lv-rent">${hint}</span></button>`;
     }).join('')}</div>`;
@@ -1000,7 +1000,7 @@
         break;
       }
       case 'teleport':
-        html = `<div class="prompt">Le Portail s’ouvre ! Choisissez sur le plateau une case libre ou à vous.<small>Coût ${fmt(RULES.worldTourFee)}. Vous avancez toujours vers l’avant : passer par la Taverne rapporte ${fmt(RULES.salary)}.</small></div><div class="btn-row"><button class="btn" data-act="skipTeleport">Refermer le Portail</button></div>`;
+        html = `<div class="prompt">Votre tour est consacré au Tour du monde. Choisissez une case libre ou à vous sur le plateau.<small>Coût ${fmt(RULES.worldTourFee)}. Vous avancez toujours vers l’avant : passer par la Taverne rapporte ${fmt(RULES.salary)}.</small></div><div class="btn-row"><button class="btn" data-act="skipTeleport">Passer ce voyage</button></div>`;
         break;
       case 'championship': {
         const next = Math.min(RULES.championshipMaxMult, s.championship ? s.championship.mult + 1 : 2);
@@ -1045,7 +1045,7 @@
   function showTileSheet(i) {
     const s = app.state; const b = BOARD[i]; const t = s.tiles[i]; const me = app.myIdx;
     const myTurn = s.current === me && s.phase === 'playing';
-    let html = `<div class="prop-sheet"><div class="ps-head" style="--g:${groupColor(i)}">${esc(b.name)}</div>`;
+    let html = `<div class="prop-sheet"><div class="ps-head" style="--g:${groupColor(i)}">${esc(b.name || 'Case sans type')}</div>`;
     if (b.type === 'property') {
       const owner = t.owner !== null ? s.players[t.owner] : null;
       html += `<p>${GROUPS[b.group].label} · Prix ${fmt(b.price)} · Niveau de taverne ${fmt(GROUPS[b.group].houseCost)} · Serviteur doré ${fmt(GROUPS[b.group].houseCost * RULES.hotelCostMult)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${s.championship && s.championship.tile === i ? ` · 🏆 Championnats x${s.championship.mult}` : ''}</p>`;
@@ -1053,16 +1053,14 @@
       if (owner && t.owner !== me) html += `<p>${t.houses === E.HOTEL ? 'Serviteur doré : cette case ne peut pas être rachetée.' : `Rachat possible en y tombant : <b>${fmt(E.buyoutPrice(s, i))}</b> (125 % du prix d’achat initial de ${esc(owner.name)}).`}</p>`;
     } else if (b.type === 'station') {
       const owner = t.owner !== null ? s.players[t.owner] : null;
-      html += `<p>Serviteur neutre · Prix ${fmt(b.price)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}</p><table>${RULES.stationRents.map((r, k) => `<tr class="${owner && E.countOwned(s, t.owner, 'station') === k + 1 ? 'now' : ''}"><td>${k + 1} serviteur${k ? 's' : ''} neutre${k ? 's' : ''}</td><td>${fmt(r)}</td></tr>`).join('')}</table>`;
-    } else if (b.type === 'utility') {
-      const owner = t.owner !== null ? s.players[t.owner] : null;
-      html += `<p>Service · Prix ${fmt(b.price)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}</p><table><tr><td>1 service</td><td>dés x ${fmt(RULES.utilityMult[0])}</td></tr><tr><td>2 services</td><td>dés x ${fmt(RULES.utilityMult[1])}</td></tr></table>`;
+      html += `<p>Serviteur neutre · Prix ${fmt(b.price)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${owner && t.owner !== me ? '<br>Cette case ne peut pas être rachetée.' : ''}</p><table>${RULES.stationRents.map((r, k) => `<tr class="${owner && E.countOwned(s, t.owner, 'station') === k + 1 ? 'now' : ''}"><td>${k + 1} serviteur${k ? 's' : ''} neutre${k ? 's' : ''}</td><td>${fmt(r)}</td></tr>`).join('')}</table>`;
     } else {
       const desc = {
+        blank: 'Cette case sans type n’a aucun effet.',
         start: `Recevez ${fmt(RULES.salary)} à chaque passage.`,
         jail: `Naufragé ! Payez ${fmt(RULES.jailFee)} ou faites un double pour repartir (3 essais max). On y arrive en tombant dessus, par une carte Chance ou après 3 doubles.`,
         championship: `Pour ${fmt(RULES.championshipFee)}, organisez les Championnats sur une de vos cases : son loyer est multiplié (x2, puis x3… jusqu’à x${RULES.championshipMaxMult}). Un seul lieu à la fois sur le plateau.`,
-        worldtour: `Pour ${fmt(RULES.worldTourFee)}, le Portail vous emmène (toujours vers l’avant) sur n’importe quelle case libre ou à vous. Passer par la Taverne rapporte ${fmt(RULES.salary)}.`,
+        worldtour: `Quand vous tombez sur le Tour du monde, le Portail s’active au début de votre prochain tour et remplace votre lancer de dés. Pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous. Passer par la Taverne rapporte ${fmt(RULES.salary)}.`,
         tax: `Payez ${fmt(b.amount)} à la banque.`,
         chance: 'Tirez une carte Chance : bonne ou mauvaise surprise.',
       }[b.type];
@@ -1131,7 +1129,7 @@
     openModal(`<div class="rules"><h2>Règles de la taverne</h2>
       <h3>But</h3><ul><li>Quand le chrono sonne, le joueur le plus riche gagne : or + valeur des cases et constructions.</li><li>La partie s’arrête aussi si tous les autres joueurs font faillite.</li></ul>
       <h3>Tour de jeu</h3><ul><li>Au début, chacun lance les dés pour déterminer l’ordre de passage ; les égalités sont départagées par un nouveau lancer.</li><li>Chaque tour dure 30 secondes, indiqué par la mèche du pétard. Le tour passe automatiquement à l’expiration.</li><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue.</li><li><b>Case libre</b> : achetez-la directement avec une Taverne de niveau 1 à 4. Seule la Taverne 4 est bloquée jusqu’à un premier passage par la Taverne.</li><li><b>Case à vous</b> : améliorez-la jusqu’à Taverne 4, puis en Serviteur doré, pour le loyer maximal. Le Serviteur doré rend la case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour 125 % de sa valeur d’achat (sauf Serviteur doré). L’or lui est versé et les niveaux restent.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li></ul>
-      <h3>Cases spéciales</h3><ul><li><b>Chance</b> : tirez une carte (gains, pertes, déplacements, carte de sortie…).</li><li><b>Île perdue</b> : payez ${fmt(RULES.jailFee)} ou faites un double pour partir (3 essais).</li><li><b>Championnats</b> : pour ${fmt(RULES.championshipFee)}, le loyer d’une de vos cases est multiplié (x2, x3… jusqu’à x${RULES.championshipMaxMult}).</li><li><b>Tour du monde</b> : pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous ; si vous passez par la Taverne, vous touchez les ${fmt(RULES.salary)}.</li><li><b>Serviteurs neutres</b> (Brann, Drakkari, Titus, Leeroy) : loyer de ${fmt(RULES.stationRents[0])} à ${fmt(RULES.stationRents[3])} selon le nombre possédé. Ni niveaux de taverne ni rachat.</li><li><b>Services</b> (Sombre Don, Bibelot) : loyer = dés x ${fmt(RULES.utilityMult[0])}, ou x ${fmt(RULES.utilityMult[1])} avec les deux.</li></ul>
+      <h3>Cases spéciales</h3><ul><li><b>Chance</b> : tirez une carte (gains, pertes, déplacements, carte de sortie…).</li><li><b>Serviteurs neutres</b> (Brann, Drakkari, Titus et Leeroy) : achetez-les sans niveau ; le loyer dépend du nombre que vous possédez. Ils ne peuvent pas être rachetés.</li><li><b>Taxe</b> : payez ${fmt(RULES.taxA)} à la banque.</li><li><b>Île perdue</b> : payez ${fmt(RULES.jailFee)} ou faites un double pour partir (3 essais).</li><li><b>Championnats</b> : pour ${fmt(RULES.championshipFee)}, le loyer d’une de vos cases est multiplié (x2, x3… jusqu’à x${RULES.championshipMaxMult}).</li><li><b>Tour du monde</b> : il s’active à votre prochain tour et remplace le lancer de dés. Pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous ; passer par la Taverne rapporte ${fmt(RULES.salary)}.</li></ul>
       <h3>Dettes</h3><ul><li>En cas de dette, vous pouvez vendre une propriété entière avec tous ses niveaux à la banque pour 75 % du montant total investi.</li><li>En cas de faillite, chaque propriété et ses niveaux sont mis aux enchères entre les joueurs restants. Le joueur en faillite récupère 50 % du prix adjugé.</li></ul>
       <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-close>Compris</button></div></div>`);
   }

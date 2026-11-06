@@ -11,8 +11,7 @@
     championshipFee: 50000,    // organiser les Championnats sur une de ses cases
     championshipMaxMult: 10,   // multiplicateur de loyer max (x2 -> x10)
     worldTourFee: 50000,       // voyager (toujours vers l'avant) vers une case libre ou à soi
-    taxA: 200000,              // Impôt (case 4)
-    taxB: 100000,              // Taxe de luxe (case 38)
+    taxA: 200000,              // Impôt
     sellRatio: 0.75,           // revente d'une propriété entière = 75 % de l'investissement total
     turnDurationMs: 30000,     // durée de jeu par tour
     auctionMinBid: 10000,      // enchère minimale et incrément minimal
@@ -23,7 +22,6 @@
     durationsMin: [10, 15, 20, 30],
     defaultDurationMin: 20,
     maxPlayers: 4,
-    utilityMult: [10000, 25000], // loyer Services = dés x 10 000 (1 possédé) ou x 25 000 (2 possédés)
     stationRents: [50000, 100000, 200000, 400000],
   };
 
@@ -45,50 +43,40 @@
 
   const P = (name, group, price, short) => ({ type: 'property', name, short: short || name, group, price, rents: rents(price) });
   const S = (name, short) => ({ type: 'station', name, short: short || name, price: 200000 });
-  const U = (name) => ({ type: 'utility', name, short: name, price: 150000 });
-
-  // 40 cases, sens horaire en partant de la Taverne (coin bas-droit).
+  // 32 cases : 4 angles et 7 cases sur chacun des côtés.
   const BOARD = [
-    { type: 'start', name: 'La Taverne', sub: 'Départ' },                                  // 0
-    P('Rob’aria', 'mech', 60000),                                                           // 1
-    { type: 'chance', name: 'Chance' },                                                     // 2
-    P('Tireur de câble', 'mech', 60000),                                                    // 3
-    { type: 'tax', name: 'Impôt de la taverne', amount: RULES.taxA },                       // 4
-    S('Brann Barbe-de-Bronze', 'Brann'),                                                    // 5
-    P('Éclaireur véloce', 'murloc', 100000),                                                // 6
-    { type: 'chance', name: 'Chance' },                                                     // 7
-    P('Bourbissa', 'murloc', 100000),                                                       // 8
-    P('Secrétaileron comptable', 'murloc', 120000, 'Secrétaileron'),                        // 9
-    { type: 'jail', name: "L'Île perdue", sub: 'Naufragé' },                                // 10
-    P('Scarabée des forêts', 'beast', 140000, 'Scarabée'),                                  // 11
-    U('Sombre Don'),                                                                        // 12
-    P('Louveteau', 'beast', 140000),                                                        // 13
-    P('Goldrinn, le grand loup', 'beast', 160000, 'Goldrinn'),                              // 14
-    S('Enchanteresse drakkari', 'Drakkari'),                                                // 15
-    P('Artiste des mers du Sud', 'pirate', 180000, 'Artiste des mers'),                     // 16
-    { type: 'chance', name: 'Chance' },                                                     // 17
-    P('Partenaire de pillage', 'pirate', 180000, 'Partenaire de pillage'),                  // 18
-    P('Eudora, maîtresse d’équipage', 'pirate', 200000, 'Eudora'),                          // 19
-    { type: 'championship', name: 'Championnats', sub: 'du monde' },                        // 20
-    P('Géomancienne de Tranchebauge', 'quilboar', 220000, 'Géomancienne'),                  // 21
-    { type: 'chance', name: 'Chance' },                                                     // 22
-    P('Pionnier huran', 'quilboar', 220000),                                                // 23
-    P('Géomage Roogug', 'quilboar', 240000, 'Roogug'),                                      // 24
-    S('Titus Vaillefendre', 'Titus'),                                                       // 25
-    P('Tisse-colère', 'demon', 260000),                                                     // 26
-    P('Malchezaar, prince du rythme', 'demon', 260000, 'Malchezaar'),                       // 27
-    U('Bibelot'),                                                                           // 28
-    P('Tichondrius', 'demon', 280000),                                                      // 29
-    { type: 'worldtour', name: 'Tour du monde', sub: 'Portail' },                            // 30
-    P('Modeleur de boules de neige', 'elemental', 300000, 'Modeleur de neige'),             // 31
-    P('Ichoron le protecteur', 'elemental', 300000, 'Ichoron'),                             // 32
-    { type: 'chance', name: 'Chance' },                                                     // 33
-    P('Tempête déchaînée', 'elemental', 320000, 'Tempête'),                                 // 34
-    S('Leeroy le Téméraire', 'Leeroy'),                                                     // 35
-    { type: 'chance', name: 'Chance' },                                                     // 36
-    P('Mère des couvées héroïque', 'dragon', 350000, 'Mère des couvées'),                   // 37
-    { type: 'tax', name: 'Taxe de luxe', amount: RULES.taxB },                              // 38
-    P('Kalecgos, Aspect des Arcanes', 'dragon', 400000, 'Kalecgos'),                        // 39
+    { type: 'start', name: 'La Taverne', sub: 'Départ' },                                    // 0
+    P('Rob’aria', 'mech', 60000),                                                            // 1
+    P('Tireur de câble', 'mech', 60000),                                                     // 2
+    P('Sneed', 'mech', 80000),                                                              // 3
+    S('Brann Barbe-de-Bronze', 'Brann'),                                                    // 4
+    P('Éclaireur véloce', 'murloc', 100000),                                                 // 5
+    P('Bourbissa', 'murloc', 100000),                                                        // 6
+    P('Secrétaileron comptable', 'murloc', 120000, 'Secrétaileron'),                        // 7
+    { type: 'jail', name: "L'Île perdue", sub: 'Naufragé' },                                 // 8
+    P('Scarabée des forêts', 'beast', 140000, 'Scarabée'),                                  // 9
+    P('Goldrinn, le grand loup', 'beast', 160000, 'Goldrinn'),                              // 10
+    P('Louveteau', 'beast', 180000),                                                        // 11
+    { type: 'chance', name: 'Chance' },                                                      // 12
+    P('Artiste des mers du Sud', 'pirate', 180000, 'Artiste des mers'),                     // 13
+    S('Enchanteresse drakkari', 'Drakkari'),                                                 // 14
+    P('Eudora, maîtresse d’équipage', 'pirate', 200000, 'Eudora'),                          // 15
+    { type: 'championship', name: 'Championnats', sub: 'du monde' },                        // 16
+    P('Géomancienne de Tranchebauge', 'quilboar', 220000, 'Géomancienne'),                  // 17
+    S('Titus Vaillefendre', 'Titus'),                                                       // 18
+    P('Géomage Roogug', 'quilboar', 240000, 'Roogug'),                                      // 19
+    { type: 'chance', name: 'Chance' },                                                      // 20
+    P('Tisse-colère', 'demon', 260000),                                                      // 21
+    P('Tichondrius', 'demon', 280000),                                                      // 22
+    P('Malchezaar, prince du rythme', 'demon', 300000, 'Malchezaar'),                       // 23
+    { type: 'worldtour', name: 'Tour du monde', sub: 'Portail' },                            // 24
+    S('Leeroy le Téméraire', 'Leeroy'),                                                      // 25
+    P('Modeleur de boules de neige', 'elemental', 300000, 'Modeleur de neige'),             // 26
+    P('Ichoron le protecteur', 'elemental', 300000, 'Ichoron'),                             // 27
+    { type: 'chance', name: 'Chance' },                                                      // 28
+    P('Mère des couvées héroïque', 'dragon', 350000, 'Mère des couvées'),                   // 29
+    { type: 'tax', name: 'Impôt de la taverne', amount: RULES.taxA },                       // 30
+    P('Kalecgos, Aspect des Arcanes', 'dragon', 400000, 'Kalecgos'),                        // 31
   ];
 
   // Cartes Chance. kinds : money, moveTo, moveBack, jail, jailCard, nearestStation,
@@ -96,17 +84,17 @@
   const CARDS = [
     { text: 'La taverne vous paie une tournée ! Recevez 150 000.', kind: 'money', amount: 150000 },
     { text: 'Vous gagnez la LAN HSBG. Recevez 100 000.', kind: 'money', amount: 100000 },
-    { text: 'Un bibelot cassé à rembourser. Payez 50 000.', kind: 'money', amount: -50000 },
+    { text: 'Une chope cassée à rembourser. Payez 50 000.', kind: 'money', amount: -50000 },
     { text: 'Taxe sur les pièces d’or : payez 100 000.', kind: 'money', amount: -100000 },
     { text: 'Dividende du Marché noir : recevez 50 000.', kind: 'money', amount: 50000 },
     { text: 'Rafraîchissement ! Avancez jusqu’à la Taverne et recevez 200 000.', kind: 'moveTo', tile: 0 },
     { text: 'Naufrage ! Allez directement sur l’Île perdue, sans passer par la Taverne.', kind: 'jail' },
     { text: 'Vous reculez de 3 cases.', kind: 'moveBack', steps: 3 },
     { text: 'Avancez jusqu’au serviteur neutre le plus proche (Brann, Drakkari, Titus ou Leeroy).', kind: 'nearestStation' },
-    { text: "Avancez jusqu’au Ravageur d'obsidienne.", kind: 'moveTo', tile: 39 },
-    { text: 'Avancez jusqu’à Bourbissa. Si vous passez par la Taverne, recevez 200 000.', kind: 'moveTo', tile: 6 },
-    { text: "Avancez jusqu’à l'accro de la gemme. Si vous passez par la Taverne, recevez 200 000.", kind: 'moveTo', tile: 21 },
-    { text: 'Allez aux Championnats du monde.', kind: 'moveTo', tile: 20 },
+    { text: 'Avancez jusqu’à Kalecgos. Si vous passez par la Taverne, recevez 200 000.', kind: 'moveTo', tile: 31 },
+    { text: 'Avancez jusqu’à Éclaireur véloce. Si vous passez par la Taverne, recevez 200 000.', kind: 'moveTo', tile: 5 },
+    { text: 'Avancez jusqu’à la Géomancienne de Tranchebauge. Si vous passez par la Taverne, recevez 200 000.', kind: 'moveTo', tile: 17 },
+    { text: 'Allez aux Championnats du monde.', kind: 'moveTo', tile: 16 },
     { text: 'Sortez gratuitement de l’Île perdue. Cette carte se conserve.', kind: 'jailCard' },
     { text: 'Réparations de la taverne : payez 25 000 par niveau de taverne et 100 000 par serviteur doré.', kind: 'perHouse', house: 25000, hotel: 100000 },
     { text: 'C’est votre anniversaire ! Chaque joueur vous donne 50 000.', kind: 'collectEach', amount: 50000 },
@@ -159,7 +147,44 @@
   const CONFIG = { RULES, GROUPS, BOARD, CARDS, TOKENS, PLAYER_COLORS, BOT_NAMES, applyContent };
   if (typeof global.localStorage !== 'undefined') {
     try {
-      const savedContent = global.localStorage.getItem('tavern-tour-content-v1');
+      const currentKey = 'tavern-tour-content-v3';
+      let savedContent = global.localStorage.getItem(currentKey);
+      if (!savedContent) {
+        const v2Content = global.localStorage.getItem('tavern-tour-content-v2');
+        const v1Content = v2Content ? null : global.localStorage.getItem('tavern-tour-content-v1');
+        const previousContent = v2Content || v1Content;
+        if (previousContent) {
+          const legacy = JSON.parse(previousContent);
+          if (legacy.boardNames) {
+            if (v1Content) {
+              const oldToNew = [0, 1, null, 2, null, 4, 5, 12, 6, 7, 8, 9, null, 10, 11, 14, 13, null, null, 15, 16, 17, 20, null, 19, 18, 21, 22, null, 23, 24, 26, 27, null, null, 25, 28, 29, 30, 31];
+              legacy.boardNames = Object.fromEntries(Object.entries(legacy.boardNames).filter(([index]) => oldToNew[Number(index)] !== undefined && oldToNew[Number(index)] !== null).map(([index, name]) => [oldToNew[Number(index)], name]));
+            }
+            const names = { ...legacy.boardNames };
+            const replaceDefault = (index, oldName, fallback) => {
+              if (names[index] === oldName || names[index] === 'Sans type') names[index] = fallback;
+            };
+            replaceDefault('3', 'Brann Barbe-de-Bronze', 'Sneed');
+            replaceDefault('7', 'Enchanteresse drakkari', 'Secrétaileron comptable');
+            replaceDefault('11', 'Titus Vaillefendre', 'Louveteau');
+            replaceDefault('23', 'Leeroy le Téméraire', 'Malchezaar, prince du rythme');
+            if (names['3'] === undefined) names['3'] = 'Sneed';
+            if (names['7'] === undefined) names['7'] = 'Secrétaileron comptable';
+            if (names['11'] === undefined) names['11'] = 'Louveteau';
+            if (names['23'] === undefined) names['23'] = 'Malchezaar, prince du rythme';
+            if (!names['4'] || names['4'] === 'Sans type') names['4'] = 'Brann Barbe-de-Bronze';
+            if (!names['14'] || names['14'] === 'Sans type') names['14'] = 'Enchanteresse drakkari';
+            if (!names['18'] || names['18'] === 'Sans type') names['18'] = 'Titus Vaillefendre';
+            if (!names['25'] || names['25'] === 'Sans type') names['25'] = 'Leeroy le Téméraire';
+            legacy.boardNames = names;
+          }
+          if (legacy.cardTexts && legacy.cardTexts[8] === 'Avancez jusqu’au serviteur le plus proche.') {
+            legacy.cardTexts[8] = 'Avancez jusqu’au serviteur neutre le plus proche (Brann, Drakkari, Titus ou Leeroy).';
+          }
+          savedContent = JSON.stringify(legacy);
+          global.localStorage.setItem(currentKey, savedContent);
+        }
+      }
       if (savedContent) applyContent(JSON.parse(savedContent));
     } catch (error) {
       console.error('Impossible de charger le fichier de contenu enregistré.', error);

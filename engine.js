@@ -5,7 +5,7 @@
   const CFG = global.TT_CONFIG || (typeof require !== 'undefined' ? require('./config.js') : null);
   const { RULES, GROUPS, BOARD, CARDS, PLAYER_COLORS } = CFG;
   const N = BOARD.length;
-  const OWNABLE = new Set(['property', 'station', 'utility']);
+  const OWNABLE = new Set(['property', 'station']);
 
   const isOwnable = (i) => OWNABLE.has(BOARD[i].type);
 
@@ -39,6 +39,7 @@
       inJail: false,
       jailTurns: 0,
       jailCards: 0,
+      worldTourPending: false,
       laps: 0,
       bankrupt: false,
     }));
@@ -105,7 +106,7 @@
   function buyoutPrice(state, i) { return tileValue(state, i) * RULES.buyoutMult; }
   function canBuyout(state, pIdx, i) {
     const b = BOARD[i]; const t = state.tiles[i];
-    return b.type === 'property' && t.owner !== null && t.owner !== pIdx && t.houses < HOTEL && !state.players[t.owner].bankrupt && state.players[pIdx].cash >= buyoutPrice(state, i);
+    return !!t && b.type === 'property' && t.owner !== null && t.owner !== pIdx && t.houses < HOTEL && !state.players[t.owner].bankrupt && state.players[pIdx].cash >= buyoutPrice(state, i);
   }
   // Un achat commence à la Taverne 1 : une case nue n'est pas un niveau de jeu.
   function buyOptions(state, pIdx, i) {
@@ -160,10 +161,6 @@
       return r;
     }
     if (b.type === 'station') return RULES.stationRents[countOwned(state, owner, 'station') - 1];
-    if (b.type === 'utility') {
-      const n = countOwned(state, owner, 'utility');
-      return (diceSum || 7) * RULES.utilityMult[n - 1];
-    }
     return 0;
   }
   function canBuild(state, pIdx, i) {
@@ -263,7 +260,7 @@
     switch (b.type) {
       case 'property':
       case 'station':
-      case 'utility': {
+      {
         if (t.owner === null) {
           if (p.cash >= b.price) {
             state.turn.step = 'buy';
@@ -318,13 +315,9 @@
         }
         break;
       case 'worldtour':
-        if (teleportTargets(state, pIdx).length && p.cash >= RULES.worldTourFee) {
-          state.turn.step = 'teleport';
-          log(state, `${p.name} ouvre le Portail du Tour du monde (${fmt(RULES.worldTourFee)}).`);
-        } else {
-          log(state, `${p.name} contemple le Portail.`);
-          finishStep(state);
-        }
+        p.worldTourPending = true;
+        log(state, `${p.name} active le Tour du monde pour son prochain tour.`);
+        finishStep(state);
         break;
       default:
         log(state, `${p.name} fait halte à la Taverne.`);
@@ -445,8 +438,18 @@
     state.turn = newTurn();
     state.turnEndsAt = now + RULES.turnDurationMs;
     const p = state.players[i];
-    if (p.inJail) state.turn.step = 'jail';
     log(state, `— Au tour de ${p.name}${p.inJail ? ' (naufragé sur l’Île perdue)' : ''}.`, 'turn');
+    if (p.inJail) state.turn.step = 'jail';
+    else if (p.worldTourPending) {
+      p.worldTourPending = false;
+      if (teleportTargets(state, i).length && p.cash >= RULES.worldTourFee) {
+        state.turn.step = 'teleport';
+        log(state, `${p.name} utilise son tour pour voyager avec le Portail (${fmt(RULES.worldTourFee)}).`);
+      } else {
+        state.turn.step = 'done';
+        log(state, `${p.name} ne peut pas utiliser le Portail : aucun trajet possible ou pas assez d’or.`);
+      }
+    }
   }
 
   function auctionBidders(state) {
