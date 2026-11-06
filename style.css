@@ -456,3 +456,9 @@ input:focus, select:focus { border-color: var(--gold-2); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Optional game modes */
+.mode-settings { grid-column: 1 / -1; display: grid; gap: 10px; }
+.mode-note { max-width: 100%; margin: 0; padding: .6em; background: #51375c; border-radius: 8px; color: #f6e5ff; font-size: .95em; line-height: 1.4; }
+.tile.cursed { outline: 3px solid #9c5cc5; outline-offset: -4px; }
+.tile.cursed .name::before { content: "☠ "; }

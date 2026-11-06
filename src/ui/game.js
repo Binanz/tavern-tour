@@ -4,6 +4,9 @@ export function createGameView({ showMoneyDelta, showTurnOverlay, processEvents,
   function onState() {
     const s = app.state; if (!s) return;
     showGame();
+    const mode = $('modeNote');
+    mode.hidden = !s.anomaly;
+    mode.textContent = s.anomaly ? window.TT_CONFIG.ANOMALIES[s.anomaly.id].name + ' — ' + window.TT_CONFIG.ANOMALIES[s.anomaly.id].description : '';
     if (app.displayedPos.length !== s.players.length) { app.displayedPos = s.players.map((p) => p.pos); app.pawnQueue = s.players.map(() => []); app.pawnBusy = s.players.map(() => false); buildPawns(); }
     app.animDelay = processEvents(s);
     app.animating = app.animDelay > 0;

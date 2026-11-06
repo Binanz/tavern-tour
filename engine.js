@@ -39,7 +39,7 @@
 
   function createGame(playerDefs, opts, rng, now) {
     rng = rng || Math.random;
-    now = now || Date.now();
+    now = now == null ? Date.now() : now;
     opts = opts || {};
     const durationMs = (opts.durationMin || RULES.defaultDurationMin) * 60 * 1000;
     const players = playerDefs.slice(0, RULES.maxPlayers).map((p, i) => ({
@@ -81,6 +81,15 @@
       ranking: null,
       turnCount: 0,
     };
+    state.anomaly = null;
+    if (opts.anomaly && opts.anomaly !== 'none') {
+      const ids = Object.keys(CFG.ANOMALIES);
+      const id = opts.anomaly === 'random' ? ids[Math.floor(rng() * ids.length)] : opts.anomaly;
+      if (!CFG.ANOMALIES[id]) throw new Error('Anomalie inconnue.');
+      state.anomaly = { id, randomState: Math.floor(rng() * 4294967296) || 1, cursedTiles: [] };
+      if (id === 'cursed') state.anomaly.cursedTiles = shuffle(BOARD.map((b, i) => b.type === 'property' ? i : -1).filter(i => i >= 0), rng).slice(0, 3);
+      log(state, 'Anomalie — ' + CFG.ANOMALIES[id].name + ' : ' + CFG.ANOMALIES[id].description, 'info');
+    }
     log(state, 'Chaque joueur lance les dés pour déterminer l’ordre de passage.');
     log(state, `Festival de la taverne : ${state.festivalTiles.map((i) => BOARD[i].name).join(', ')} ont leur loyer doublé jusqu’à la fin de la partie.`, 'ok');
     return state;
@@ -116,9 +125,12 @@
   function tileValue(state, i) {
     const t = state.tiles[i];
     if (!t || t.owner === null) return 0;
-    let v = BOARD[i].price;
+    let v = landPrice(state, i);
     if (BOARD[i].type === 'property') v += levelCost(i, 0, t.houses);
     return v;
+  }
+  function landPrice(state, i) {
+    return Math.round(BOARD[i].price * (state.anomaly && state.anomaly.cursedTiles.includes(i) ? 0.75 : 1));
   }
   function buyoutPrice(state, i) { return tileValue(state, i) * RULES.buyoutMult; }
   function canBuyout(state, pIdx, i) {
@@ -131,7 +143,7 @@
     if (b.type !== 'property') return [{ houses: 0, cost: b.price, locked: false, affordable: p.cash >= b.price }];
     const out = [];
     for (let h = 1; h <= RULES.maxHouses; h++) {
-      const cost = b.price + levelCost(i, 0, h);
+      const cost = landPrice(state, i) + levelCost(i, 0, h);
       const locked = h >= RULES.lockedHousesBeforeLap && p.laps < 1;
       out.push({ houses: h, cost, locked, affordable: p.cash >= cost });
     }
@@ -180,6 +192,7 @@
       rent = RULES.stationRents[countOwned(state, owner, 'station') - 1];
     }
     if (state.festivalTiles && state.festivalTiles.includes(i)) rent *= 2;
+    if (state.anomaly && state.anomaly.cursedTiles.includes(i)) rent *= 2;
     return rent;
   }
   function canBuild(state, pIdx, i) {
@@ -284,10 +297,10 @@
       case 'station':
       {
         if (t.owner === null) {
-          if (p.cash >= b.price) {
+          if (p.cash >= landPrice(state, i)) {
             state.turn.step = 'buy';
             state.turn.offer = i;
-            log(state, `${p.name} arrive sur ${b.name} (libre, ${fmt(b.price)}).`);
+            log(state, `${p.name} arrive sur ${b.name} (libre, ${fmt(landPrice(state, i))}).`);
           } else {
             log(state, `${p.name} arrive sur ${b.name} mais n’a pas de quoi l’acheter.`);
             finishStep(state);
@@ -427,6 +440,18 @@
     }
   }
 
+  function resolveDice(state, pIdx, d, rng) {
+    const t = state.turn, p = state.players[pIdx];
+    t.dice = d;
+    t.rolledThisTurn = true;
+    t.isDouble = d[0] === d[1];
+    if (t.isDouble) t.doubles++;
+    ev(state, { type: 'dice', player: pIdx, dice: d });
+    log(state, p.name + ' lance ' + d.join(' + ') + (t.isDouble ? ' (double).' : '.'));
+    if (t.doubles >= 3) { sendToJail(state, pIdx); return; }
+    moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
+  }
+
   function rollDice(rng) {
     return [1 + Math.floor(rng() * 6), 1 + Math.floor(rng() * 6)];
   }
@@ -478,6 +503,15 @@
       orderIndex = (orderIndex + 1) % state.turnOrder.length;
     } while (state.players[state.turnOrder[orderIndex]].bankrupt);
     const i = state.turnOrder[orderIndex];
+    if (orderIndex <= orderPos && state.anomaly && state.anomaly.id === 'festival') {
+      const anomaly = state.anomaly;
+      const festivalRng = () => {
+        anomaly.randomState = (Math.imul(anomaly.randomState, 1664525) + 1013904223) >>> 0;
+        return anomaly.randomState / 4294967296;
+      };
+      state.festivalTiles = drawFestivalTiles(festivalRng);
+      log(state, 'Le Festival se déplace : ' + state.festivalTiles.map(tile => BOARD[tile].name).join(', '), 'ok');
+    }
     state.current = i;
     state.turnCount++;
     state.turn = newTurn();
@@ -738,18 +772,21 @@
       case 'roll': {
         if (t.step !== 'roll') return ERR('Impossible de lancer les dés maintenant.');
         const d = rollDice(rng);
-        t.dice = d;
-        t.rolledThisTurn = true;
-        t.isDouble = d[0] === d[1];
-        if (t.isDouble) t.doubles++;
-        ev(state, { type: 'dice', player: pIdx, dice: d });
-        log(state, `${p.name} lance ${d[0]} + ${d[1]}${t.isDouble ? ' (double)' : ''}.`);
-        if (t.doubles >= 3) {
-          log(state, `Trois doubles ! ${p.name} est envoyé sur l’Île perdue.`, 'warn');
-          sendToJail(state, pIdx);
+        if (state.anomaly && state.anomaly.id === 'destiny') {
+          t.rollChoices = [...d, 1 + Math.floor(rng() * 6)];
+          t.step = 'diceChoice';
+          log(state, p.name + ' choisit deux dés parmi ' + t.rollChoices.join(', ') + '.');
           return OK;
         }
-        moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
+        resolveDice(state, pIdx, d, rng);
+        return OK;
+      }
+      case 'chooseDice': {
+        const indices = action.indices;
+        if (t.step !== 'diceChoice' || !Array.isArray(indices) || indices.length !== 2 || indices[0] === indices[1] || indices.some(i => !Number.isInteger(i) || i < 0 || i > 2)) return ERR('Choisissez deux dés différents.');
+        const d = indices.map(i => t.rollChoices[i]);
+        t.rollChoices = null;
+        resolveDice(state, pIdx, d, rng);
         return OK;
       }
       case 'jailPay': {
@@ -942,7 +979,9 @@
     }
     if (state.turnEndsAt != null && now >= state.turnEndsAt) {
       state.events = [];
-      if (state.auction) {
+      if (state.turn.step === 'diceChoice') {
+        apply(state, state.current, botAction(state, state.current), Math.random, now);
+      } else if (state.auction) {
         log(state, `${state.players[state.current].name} n’a pas enchéri à temps : il passe.`, 'warn');
         auctionAction(state, state.current, { type: 'auctionPass' }, now);
       } else if (state.turn.step === 'debt') {
@@ -992,6 +1031,10 @@
       return { type: 'auctionPass' };
     }
     switch (t.step) {
+      case 'diceChoice': {
+        const indices = [0, 1, 2].sort((a, b) => t.rollChoices[b] - t.rollChoices[a]).slice(0, 2);
+        return { type: 'chooseDice', indices };
+      }
       case 'roll': return { type: 'roll' };
       case 'jail':
         if (p.jailCards > 0) return { type: 'jailCard' };
@@ -1067,7 +1110,7 @@
   }
 
   const ENGINE = {
-    changeController, readClock, refreshClock,
+    changeController, readClock, refreshClock, landPrice,
     createGame, apply, tick, botAction, computeRent, netWorth, liquidationValue, sellValue, tileValue,
     teleportTargets, championshipTargets, canBuild, canBuyout, buyoutPrice, buyOptions, buildOptions, levelCost, stepCost, HOTEL,
     ownsGroup, countOwned, houseCost, isOwnable, alive, fmt, N,

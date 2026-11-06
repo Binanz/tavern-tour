@@ -144,7 +144,13 @@
     }
   }
 
-  const CONFIG = { RULES, GROUPS, BOARD, CARDS, TOKENS, PLAYER_COLORS, BOT_NAMES, applyContent };
+  const ANOMALIES = {
+    festival: { name: "Festival itinérant", description: "Les trois cases Festival changent à chaque tour de table." },
+    cursed: { name: "Terres maudites", description: "Trois terrains coûtent 25 % moins cher à l’achat (terrain seul), mais leurs loyers sont doublés. Les constructions gardent leur prix." },
+    destiny: { name: "Dé du destin", description: "Hors prison et ordre de passage, lancez trois dés et choisissez les deux à garder. Seuls ces deux dés comptent pour les doubles." },
+  };
+
+  const CONFIG = { ANOMALIES, RULES, GROUPS, BOARD, CARDS, TOKENS, PLAYER_COLORS, BOT_NAMES, applyContent };
   if (typeof global.localStorage !== 'undefined') {
     try {
       const currentKey = 'tavern-tour-content-v3';

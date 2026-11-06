@@ -75,6 +75,10 @@
         <p class="net-status" id="netStatus" hidden></p>
       </div>
 
+      <section class="panel mode-settings" aria-label="Modes de jeu">
+        <label class="field"><span>Anomalie commune (optionnel)</span><select id="anomalySelect"><option value="none">Classique — aucune anomalie</option><option value="random">Anomalie aléatoire</option><option value="festival">Festival itinérant</option><option value="cursed">Terres maudites</option><option value="destiny">Dé du destin</option></select></label>
+        <p class="muted" id="anomalyHint">Une seule anomalie s’applique à tous, dès le début. Disponible aussi en partie locale.</p>
+      </section>
       <div class="panel lobby" id="lobbyPanel" hidden>
         <div class="lobby-head">
           <div>
@@ -120,6 +124,7 @@
             <span class="turn-seconds" id="turnSeconds">30 s</span>
           </div>
           <div class="center-title">Tavern <span>Tour</span></div>
+          <p class="mode-note" id="modeNote" hidden></p>
           <div class="turn-banner" id="turnBanner"></div>
           <div class="dice" id="dice">
             <div class="die" id="die1"><span>?</span></div>

@@ -87,12 +87,16 @@ export function createActions({ act, showTileSheet, showEnd }) {
     if (pending) { el.innerHTML = `<div class="prompt muted">…</div>`; return; }
     const lastPay = t.lastPay && (['done', 'buyout', 'debt'].includes(t.step) || (t.step === 'roll' && t.rolledThisTurn)) ? t.lastPay : null;
     if (!myTurn) {
-      const what = { roll: 'lance les dés', jail: 'est naufragé sur l’Île perdue', buy: `hésite à acheter ${t.offer != null ? BOARD[t.offer].name : ''}`, build: 'envisage de construire', buyout: `peut racheter ${t.offer != null ? BOARD[t.offer].name : ''}`, teleport: 'choisit une destination', championship: 'organise les Championnats', debt: 'doit vendre pour payer sa dette', auction: 'participe aux enchères', done: 'termine son tour' }[t.step] || '';
+      const what = { diceChoice: 'choisit deux dés parmi trois', roll: 'lance les dés', jail: 'est naufragé sur l’Île perdue', buy: `hésite à acheter ${t.offer != null ? BOARD[t.offer].name : ''}`, build: 'envisage de construire', buyout: `peut racheter ${t.offer != null ? BOARD[t.offer].name : ''}`, teleport: 'choisit une destination', championship: 'organise les Championnats', debt: 'doit vendre pour payer sa dette', auction: 'participe aux enchères', done: 'termine son tour' }[t.step] || '';
       el.innerHTML = `${payNoteHTML(s, lastPay)}<div class="prompt muted">${esc(p.name)} ${what}…<small>Cliquez sur une case pour voir ses loyers.</small></div>`;
       return;
     }
     let html = '';
     switch (t.step) {
+      case 'diceChoice': {
+        html = '<div class="prompt">Choisissez deux dés parmi ' + t.rollChoices.join(' · ') + '.<small>Les deux dés gardés déterminent le déplacement et les doubles.</small></div><div class="btn-row">' + [[0,1],[0,2],[1,2]].map(pair => '<button class="btn primary" data-pair="' + pair.join(',') + '">' + pair.map(i => t.rollChoices[i]).join(' + ') + '</button>').join('') + '</div>';
+        break;
+      }
       case 'roll': {
         html = `<div class="prompt">${t.doubles > 0 ? 'Double ! Relancez les dés.' : 'Lancez les dés.'}<small>Votre tour dure 30 secondes. Cliquez sur une de vos propriétés pour vendre la case entière à 75 % de l’investissement.</small></div>
           <button class="btn primary big" data-act="roll">🎲 Lancer les dés</button>`;
@@ -138,6 +142,7 @@ export function createActions({ act, showTileSheet, showEnd }) {
         break;
     }
     el.innerHTML = html;
+    el.querySelectorAll('[data-pair]').forEach(b => { b.onclick = () => act({ type: 'chooseDice', indices: b.dataset.pair.split(',').map(Number) }); });
     el.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => { act({ type: b.dataset.act }); }));
     el.querySelectorAll('.lvl[data-houses]').forEach((b) => (b.onclick = () => { act({ type: t.step === 'buy' ? 'buy' : 'build', houses: +b.dataset.houses }); }));
   }

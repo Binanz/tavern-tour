@@ -126,3 +126,12 @@ Pre-game lobby data and visual preferences remain managed by their controllers. 
 ## Credits and Disclaimer
 
 Tavern Tour is a fan-made, non-commercial project. It is not affiliated with or endorsed by Blizzard Entertainment. Game names and themed content belong to their respective owners.
+## Optional mode: shared anomalies
+
+The home screen and host lobby offer Classic (default), Random, Festival itinérant, Terres maudites and Dé du destin. One shared anomaly is selected at match creation, synchronized in the game snapshot, and displayed throughout the match. Replaying draws a fresh anomaly when Random is selected. Guests see the host's selection and cannot change it.
+
+- **Festival itinérant:** redraw three Festival spaces from distinct families when play wraps around the turn order; bankrupt players are skipped.
+- **Terres maudites:** three property spaces have a 25% discount on the land price and double rent. Construction prices stay unchanged; valuation, resale and buyouts use the discounted land value. Festival and family multipliers still apply.
+- **Dé du destin:** outside initial ordering and prison, roll three dice and choose two. Only the chosen pair determines movement and doubles. Bots choose the largest sum; an expired choice is resolved automatically before normal timeout handling.
+
+Mode rules are in `config.js`, transitions remain in `engine.js`. State stores the anomaly and Festival PRNG state so a serialized match can continue consistently.
