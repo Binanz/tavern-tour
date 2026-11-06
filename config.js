@@ -56,7 +56,7 @@
     P('Rob’aria', 'mech', 60000),                                                           // 1
     { type: 'chance', name: 'Chance' },                                                     // 2
     P('Tireur de câble', 'mech', 60000),                                                    // 3
-    { type: 'tax', name: 'Impôt de Bob', amount: RULES.taxA },                              // 4
+    { type: 'tax', name: 'Impôt de la taverne', amount: RULES.taxA },                       // 4
     S('Brann Barbe-de-Bronze', 'Brann'),                                                    // 5
     P('Éclaireur véloce', 'murloc', 100000),                                                // 6
     { type: 'chance', name: 'Chance' },                                                     // 7
@@ -97,7 +97,7 @@
   // Cartes Chance. kinds : money, moveTo, moveBack, jail, jailCard, nearestStation,
   // perHouse (payer par niveau de taverne/serviteur doré), collectEach, payEach.
   const CARDS = [
-    { text: 'Bob vous paie une tournée ! Recevez 150 000.', kind: 'money', amount: 150000 },
+    { text: 'La taverne vous paie une tournée ! Recevez 150 000.', kind: 'money', amount: 150000 },
     { text: 'Vous gagnez la LAN HSBG. Recevez 100 000.', kind: 'money', amount: 100000 },
     { text: 'Un bibelot cassé à rembourser. Payez 50 000.', kind: 'money', amount: -50000 },
     { text: 'Taxe sur les pièces d’or : payez 100 000.', kind: 'money', amount: -100000 },
@@ -120,8 +120,54 @@
   // Pions disponibles
   const TOKENS = ['🐟', '🐺', '👹', '🐉', '⚙️', '🏴‍☠️', '🐗', '🔥'];
   const PLAYER_COLORS = ['#f2c14e', '#5fd0ff', '#ff6b8a', '#7ddf64'];
+  const BOT_NAMES = [
+    'Aubépine', 'Braise-Lune', 'Capitaine Chardon', 'Dame Poussière', 'Flammegrise', 'Givre-Pic',
+    'Grommelune', 'Lanterne', 'Moussebarbe', 'Nacre', 'Orageux', 'Petit Tonnerre', 'Quenouille',
+    'Rochebrune', 'Sifflevent', 'Tante Brindille', 'Vieux Grincheux', 'Zéphyr', 'Brume-des-Bois',
+    'Cœur-de-Chêne', 'Doux-Sabot', 'Épine Noire', 'Fanal', 'Grain-de-Sel', 'Hibou-Roux',
+    'Iris des Brumes', 'Jaspe', 'Korrigan', 'Lune Rousse', 'Mistral', 'Noisette', 'Ocre',
+    'Pavot', 'Roncevive', 'Sureau', 'Tison',
+  ];
 
-  const CONFIG = { RULES, GROUPS, BOARD, CARDS, TOKENS, PLAYER_COLORS };
+  function applyContent(data) {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Le fichier doit contenir un objet JSON.');
+    if (data.boardNames !== undefined) {
+      if (!data.boardNames || typeof data.boardNames !== 'object' || Array.isArray(data.boardNames)) throw new Error('boardNames doit être un objet indexé par numéro de case.');
+      Object.entries(data.boardNames).forEach(([key, value]) => {
+        const index = Number(key);
+        if (!Number.isInteger(index) || index < 0 || index >= BOARD.length || typeof value !== 'string' || !value.trim() || value.length > 100) {
+          throw new Error(`Nom de case invalide à l’index ${key}.`);
+        }
+      });
+    }
+    if (data.cardTexts !== undefined && (!Array.isArray(data.cardTexts) || data.cardTexts.length !== CARDS.length || data.cardTexts.some((text) => typeof text !== 'string' || !text.trim() || text.length > 500))) {
+      throw new Error(`cardTexts doit contenir exactement ${CARDS.length} textes non vides.`);
+    }
+    if (data.botNames !== undefined && (!Array.isArray(data.botNames) || data.botNames.length < RULES.maxPlayers - 1 || data.botNames.some((name) => typeof name !== 'string' || !name.trim() || name.length > 40) || new Set(data.botNames.map((name) => typeof name === 'string' ? name.trim().toLocaleLowerCase() : '')).size !== data.botNames.length)) {
+      throw new Error(`botNames doit contenir au moins ${RULES.maxPlayers - 1} noms uniques et non vides.`);
+    }
+    if (data.boardNames) {
+      Object.entries(data.boardNames).forEach(([key, value]) => {
+        const tile = BOARD[Number(key)];
+        tile.name = value.trim();
+        tile.short = value.trim();
+      });
+    }
+    if (data.cardTexts) CARDS.forEach((card, i) => { card.text = data.cardTexts[i].trim(); });
+    if (data.botNames) {
+      BOT_NAMES.splice(0, BOT_NAMES.length, ...data.botNames.map((name) => name.trim()));
+    }
+  }
+
+  const CONFIG = { RULES, GROUPS, BOARD, CARDS, TOKENS, PLAYER_COLORS, BOT_NAMES, applyContent };
+  if (typeof global.localStorage !== 'undefined') {
+    try {
+      const savedContent = global.localStorage.getItem('tavern-tour-content-v1');
+      if (savedContent) applyContent(JSON.parse(savedContent));
+    } catch (error) {
+      console.error('Impossible de charger le fichier de contenu enregistré.', error);
+    }
+  }
   global.TT_CONFIG = CONFIG;
   if (typeof module !== 'undefined' && module.exports) module.exports = CONFIG;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css?v=10" />
+  <link rel="stylesheet" href="./style.css?v=11" />
 </head>
 <body>
   <header class="topbar">
@@ -28,9 +28,20 @@
   <!-- ================= ACCUEIL ================= -->
   <main id="screen-home" class="screen home">
     <section class="hero">
-      <p class="eyebrow">Bob vous souhaite la bienvenue</p>
+      <p class="eyebrow">La taverne vous souhaite la bienvenue</p>
       <h1>Tavern <span>Tour</span></h1>
       <p class="lede">Le Business Tour des copains, version Battlegrounds : achetez des serviteurs, encaissez les loyers, et soyez le plus riche quand le chrono sonne.</p>
+    </section>
+
+    <section class="panel resume-panel" id="resumePanel" hidden>
+      <div>
+        <h2>Partie en cours</h2>
+        <p class="muted" id="resumeHint">Une partie sauvegardée est disponible sur cet appareil.</p>
+      </div>
+      <div class="resume-actions">
+        <button class="btn primary" id="btnResume">Reprendre la partie</button>
+        <button class="btn" id="btnDiscardResume">Abandonner la sauvegarde</button>
+      </div>
     </section>
 
     <section class="home-grid">
@@ -106,8 +117,17 @@
       </div>
     </section>
 
+    <section class="panel content-tools">
+      <div>
+        <h2>Modifier le contenu</h2>
+        <p class="muted">Modifiez <code>content.json</code>, puis importez-le : <code>boardNames</code> utilise les numéros des cases du plateau, <code>cardTexts</code> suit l’ordre des cartes Chance et <code>botNames</code> contient au moins 3 noms uniques.</p>
+      </div>
+      <input id="contentFile" type="file" accept=".json,application/json" hidden />
+      <button class="btn" id="btnImportContent">Importer content.json</button>
+    </section>
+
     <footer class="home-foot">
-      <p>Pair-à-pair, sans serveur : l’hôte doit rester connecté pendant la partie. Serviteurs du pool Battlegrounds actuel, modifiables dans <code>config.js</code>.</p>
+      <p>Pair-à-pair, sans serveur : l’hôte doit rester connecté pendant la partie. Noms des bots, propriétés et cartes modifiables avec <code>content.json</code>.</p>
     </footer>
   </main>
 
@@ -149,10 +169,10 @@
   <div class="fx-layer" id="fx" aria-hidden="true"></div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="./config.js?v=4"></script>
+  <script src="./config.js?v=5"></script>
   <script src="./engine.js?v=4"></script>
-  <script src="./net.js?v=4"></script>
-  <script src="./app.js?v=4"></script>
+  <script src="./net.js?v=5"></script>
+  <script src="./app.js?v=5"></script>
 <script data-pplx-inline-edit>
 (function () {
   if (window === window.top) return;

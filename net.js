@@ -63,8 +63,13 @@
         conn.on('open', () => {
           this.conns.set(conn.peer, conn);
           conn.on('data', (msg) => this.h.onMessage && this.h.onMessage(conn.peer, msg));
-          conn.on('close', () => { this.conns.delete(conn.peer); this.h.onLeave && this.h.onLeave(conn.peer); });
-          conn.on('error', () => { this.conns.delete(conn.peer); this.h.onLeave && this.h.onLeave(conn.peer); });
+          const onDisconnect = () => {
+            if (this.conns.get(conn.peer) !== conn) return;
+            this.conns.delete(conn.peer);
+            this.h.onLeave && this.h.onLeave(conn.peer);
+          };
+          conn.on('close', onDisconnect);
+          conn.on('error', onDisconnect);
           this.h.onJoin && this.h.onJoin(conn.peer);
         });
       });
@@ -72,11 +77,11 @@
       peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) { /* ignore */ } });
     }
 
-    join(code) {
+    join(code, peerId) {
       this._ensurePeerLib();
       this.role = 'client';
       this.code = code.toUpperCase();
-      const peer = new global.Peer(peerOptions());
+      const peer = peerId ? new global.Peer(peerId, peerOptions()) : new global.Peer(peerOptions());
       this.peer = peer;
       peer.on('open', () => {
         const conn = peer.connect(peerIdFor(this.code), { reliable: true });

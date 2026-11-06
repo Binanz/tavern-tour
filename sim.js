@@ -43,7 +43,7 @@ function runGame(seed, durationMin, verbose) {
   const rng = mulberry32(seed);
   let now = 1000;
   const players = [
-    { name: 'Bot Murky', token: '🐟', isBot: true },
+    { name: 'Bot Test', token: '🐟', isBot: true },
     { name: 'Bot Bran', token: '🐺', isBot: true },
     { name: 'Bot Titus', token: '👹', isBot: true },
     { name: 'Bot Nomi', token: '🔥', isBot: true },
