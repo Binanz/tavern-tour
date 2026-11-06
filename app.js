@@ -555,7 +555,7 @@
       else if (b.type === 'chance') body = `<div class="body"><div class="ico">?</div><div class="name">Chance</div></div>`;
       else if (b.type === 'tax') body = `<div class="body"><div class="ico">${ICONS.tax}</div><div class="name">${esc(b.name)}</div><div class="price">${fmt(b.amount)}</div></div>`;
       else body = `<div class="body"><div class="ico">${ICONS[b.type]}</div><div class="name">${esc(b.name)}</div>${b.sub ? `<div class="sub">${esc(b.sub)}</div>` : ''}</div>`;
-      el.innerHTML = body + '<div class="owner"></div>' + (OWNABLE_TYPES.has(b.type) ? '<div class="owner-tok" hidden><span></span></div>' : '');
+      el.innerHTML = body + (OWNABLE_TYPES.has(b.type) ? '<div class="owner-pin" hidden><span class="owner-line"></span><span class="owner-bubble"><span></span></span></div>' : '');
       el.title = b.name;
       el.onclick = () => onTileClick(i);
       board.appendChild(el);
@@ -733,9 +733,15 @@
       if (t) {
         const owned = t.owner !== null;
         el.style.setProperty('--oc', owned ? s.players[t.owner].color : 'transparent');
-        el.classList.toggle('owned', owned);
-        const tok = el.querySelector('.owner-tok');
-        if (tok) { tok.hidden = !owned; if (owned) { tok.firstElementChild.textContent = s.players[t.owner].token; tok.title = `Propriété de ${s.players[t.owner].name}`; } }
+        const pin = el.querySelector('.owner-pin');
+        if (pin) {
+          pin.hidden = !owned;
+          if (owned) {
+            pin.style.setProperty('--oc', s.players[t.owner].color);
+            pin.querySelector('.owner-bubble span').textContent = s.players[t.owner].token;
+            pin.title = `Propriété de ${s.players[t.owner].name}`;
+          }
+        }
         const h = el.querySelector('.houses');
         if (h) h.innerHTML = t.houses === E.HOTEL ? '<span class="house hotel"><b>HÔTEL</b></span>' : '<span class="house"></span>'.repeat(t.houses);
         const pr = el.querySelector('.price');
