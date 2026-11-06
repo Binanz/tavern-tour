@@ -156,7 +156,12 @@
       const b = document.createElement('button');
       b.className = 'token-btn'; b.type = 'button'; b.textContent = tk; b.setAttribute('role', 'radio');
       b.setAttribute('aria-checked', TOKENS[i] === app.me.token ? 'true' : 'false');
-      b.onclick = () => { app.me.token = tk; picker.querySelectorAll('.token-btn').forEach((x) => x.setAttribute('aria-checked', x === b ? 'true' : 'false')); SFX.step(); };
+      b.onclick = () => {
+        app.me.token = tk;
+        picker.querySelectorAll('.token-btn').forEach((x) => x.setAttribute('aria-checked', x === b ? 'true' : 'false'));
+        if (app.lobby && !app.lobby.started) $('lobbyProfileHint').textContent = '';
+        SFX.step();
+      };
       picker.appendChild(b);
     });
     const dsel = $('durationSelect');
@@ -172,6 +177,7 @@
     $('btnStart').onclick = startGame;
     $('btnLeaveLobby').onclick = leaveLobby;
     $('btnSaveLobbyProfile').onclick = saveLobbyProfile;
+    $('nameInput').addEventListener('input', () => { if (app.lobby && !app.lobby.started) $('lobbyProfileHint').textContent = ''; });
     $('btnCopy').onclick = copyCode;
     $('btnRules').onclick = showRules;
     $('btnMute').onclick = () => { app.muted = !app.muted; $('btnMute').setAttribute('aria-pressed', String(app.muted)); if (!app.muted) SFX.coin(); };
@@ -237,6 +243,7 @@
   function showLobby() {
     $('modesPanel').hidden = true;
     $('lobbyPanel').hidden = false;
+    $('btnSaveLobbyProfile').hidden = false;
     renderLobby();
   }
   function renderLobby() {
@@ -268,26 +275,18 @@
   function renderLobbyProfile() {
     const L = app.lobby; const player = L && L.players[app.myIdx];
     if (!player) return;
-    const nameInput = $('lobbyNameInput');
+    const nameInput = $('nameInput');
     if (document.activeElement !== nameInput) nameInput.value = player.name;
-    const picker = $('lobbyTokenPicker'); picker.innerHTML = '';
-    TOKENS.forEach((token) => {
-      const b = document.createElement('button');
-      b.className = 'token-btn'; b.type = 'button'; b.textContent = token;
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', String(token === app.me.token));
+    const picker = $('tokenPicker');
+    picker.querySelectorAll('.token-btn').forEach((b, i) => {
+      const token = TOKENS[i];
       b.disabled = L.players.some((p, i) => i !== app.myIdx && p.token === token);
-      b.onclick = () => {
-        app.me.token = token;
-        $('lobbyProfileHint').textContent = '';
-        picker.querySelectorAll('.token-btn').forEach((button) => button.setAttribute('aria-checked', String(button === b)));
-      };
-      picker.appendChild(b);
+      b.setAttribute('aria-checked', String(token === app.me.token));
     });
   }
   function saveLobbyProfile() {
     if (!app.lobby || app.lobby.started) return;
-    const name = $('lobbyNameInput').value;
+    const name = $('nameInput').value;
     if (app.mode === 'host') {
       applyLobbyProfile(app.myIdx, name, app.me.token);
       broadcastLobby();
@@ -310,8 +309,10 @@
     const tokenTaken = L.players.some((p, i) => i !== idx && p.token === requestedToken);
     player.name = name;
     if (TOKENS.includes(requestedToken) && !tokenTaken) player.token = requestedToken;
-    app.me.name = player.name;
-    app.me.token = player.token;
+    if (idx === app.myIdx) {
+      app.me.name = player.name;
+      app.me.token = player.token;
+    }
   }
   function broadcastLobby() {
     renderLobby();
@@ -324,6 +325,9 @@
     clearTimeout(app.hostLostTimer); app.hostLostTimer = null;
     if (app.net) app.net.destroy();
     app.net = null; app.mode = null; app.lobby = null;
+    $('btnSaveLobbyProfile').hidden = true;
+    $('lobbyProfileHint').textContent = '';
+    $('tokenPicker').querySelectorAll('.token-btn').forEach((button) => { button.disabled = false; });
     $('lobbyPanel').hidden = true; $('modesPanel').hidden = false; $('btnHost').disabled = false; $('btnJoin').disabled = false; setNetStatus('');
   }
   function copyCode() {

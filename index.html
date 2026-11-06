@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css?v=6" />
+  <link rel="stylesheet" href="./style.css?v=7" />
 </head>
 <body>
   <header class="topbar">
@@ -41,6 +41,10 @@
           <input id="nameInput" maxlength="16" placeholder="Ex. Paul" autocomplete="off" />
         </label>
         <div class="token-picker" id="tokenPicker" role="radiogroup" aria-label="Choix du pion"></div>
+        <div class="identity-actions">
+          <button class="btn small" id="btnSaveLobbyProfile" hidden>Valider les changements</button>
+          <span class="muted" id="lobbyProfileHint" aria-live="polite"></span>
+        </div>
       </div>
 
       <div class="panel modes" id="modesPanel">
@@ -84,19 +88,6 @@
           </div>
         </div>
         <ul class="seats" id="seats"></ul>
-        <section class="lobby-profile" aria-labelledby="lobbyProfileTitle">
-          <h3 id="lobbyProfileTitle">Votre profil pour cette partie</h3>
-          <label class="field">
-            <span>Pseudo</span>
-            <input id="lobbyNameInput" maxlength="16" autocomplete="off" />
-          </label>
-          <span class="profile-label">Icône</span>
-          <div class="token-picker" id="lobbyTokenPicker" role="radiogroup" aria-label="Choix de l’icône"></div>
-          <div class="lobby-profile-actions">
-            <button class="btn small" id="btnSaveLobbyProfile">Mettre à jour</button>
-            <span class="muted" id="lobbyProfileHint" aria-live="polite"></span>
-          </div>
-        </section>
         <div class="lobby-options" id="lobbyOptions">
           <label class="field inline">
             <span>Durée</span>
@@ -141,6 +132,8 @@
 
     <aside class="side">
       <div class="players" id="players"></div>
+    </aside>
+    <aside class="game-log">
       <div class="log-panel">
         <div class="log-head">Journal de Bob</div>
         <div class="log" id="log"></div>

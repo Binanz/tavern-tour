@@ -30,7 +30,8 @@
   --r: 10px;
   --shadow: 0 10px 30px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.04) inset;
   --topbar-h: 56px;
-  --side-w: 400px;
+  --side-w: 320px;
+  --log-w: 300px;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -139,6 +140,9 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 }
 .token-btn:hover { transform: translateY(-2px) scale(1.04); }
 .token-btn[aria-checked="true"] { background: rgba(217, 179, 90, 0.25); border-color: var(--gold-2); box-shadow: 0 0 0 2px rgba(243, 217, 139, 0.35); }
+.identity-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; }
+.identity-actions .muted { font-size: var(--text-xs); }
+.identity-actions button[hidden] { display: none; }
 
 .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 .mode h3 { font-size: 17px; color: var(--gold-2); margin-bottom: 8px; }
@@ -157,14 +161,7 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 .seat .tag { margin-left: auto; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--cream-dim); }
 .seat.empty { opacity: 0.55; border-style: dashed; }
 .seat.me { border-color: var(--gold); }
-.lobby-profile { margin: 0 0 20px; padding: 14px; border: 1px solid rgba(217, 179, 90, 0.25); border-radius: 10px; background: rgba(0, 0, 0, 0.2); }
-.lobby-profile h3 { margin-bottom: 12px; color: var(--gold-2); font-size: 16px; }
-.lobby-profile .token-picker { grid-template-columns: repeat(8, minmax(0, 1fr)); margin: 8px 0 12px; }
-.lobby-profile .token-btn { font-size: 22px; }
 .token-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-.profile-label { display: block; color: var(--cream-dim); font-size: var(--text-sm); }
-.lobby-profile-actions { display: flex; align-items: center; gap: 12px; }
-.lobby-profile-actions .muted { font-size: var(--text-xs); }
 .lobby-options { display: flex; gap: 24px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--cream-dim); cursor: pointer; }
 .check input { accent-color: var(--gold); width: 16px; height: 16px; }
@@ -175,13 +172,15 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 
 /* ---------- Écran de jeu ---------- */
 .game {
-  display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); gap: 16px;
+  display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr) var(--log-w); gap: 16px;
   height: calc(100vh - var(--topbar-h)); padding: 12px 16px; overflow: hidden;
 }
+.side { grid-column: 1; grid-row: 1; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; }
 .board-wrap { grid-column: 2; grid-row: 1; display: grid; place-items: center; min-width: 0; min-height: 0; }
-.side { grid-column: 1; grid-row: 1; }
+.game-log { grid-column: 3; grid-row: 1; display: flex; flex-direction: column; min-height: 0; }
+.game-log .log-panel { flex: 1; }
 .board {
-  --size: min(calc(100vh - var(--topbar-h) - 24px), calc(100vw - var(--side-w) - 48px));
+  --size: min(calc(100vh - var(--topbar-h) - 24px), calc(100vw - var(--side-w) - var(--log-w) - 64px));
   width: var(--size); height: var(--size);
   position: relative;
   display: grid;
@@ -421,12 +420,14 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 @media (max-width: 1100px) {
   .home-grid { grid-template-columns: 1fr; }
   .modes { grid-template-columns: 1fr; }
+}
+@media (max-width: 1200px) {
   .game { grid-template-columns: 1fr; height: auto; overflow: visible; }
   .board-wrap { grid-column: 1; grid-row: 1; }
-  .side { grid-column: 1; grid-row: 2; }
+  .side { grid-column: 1; grid-row: 2; max-height: none; overflow: visible; }
+  .game-log { grid-column: 1; grid-row: 3; }
   .board { --size: min(calc(100vw - 32px), 900px); }
-  .side { max-height: none; }
-  .log-panel { min-height: 240px; max-height: 320px; }
+  .game-log .log-panel { min-height: 240px; max-height: 320px; }
 }
 @media (max-width: 640px) {
   .topbar { padding: 0 10px; } .brand { font-size: 16px; } .timer { font-size: 16px; padding: 3px 10px; }
