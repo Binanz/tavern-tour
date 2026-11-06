@@ -1,0 +1,10 @@
+{
+  "name": "tavern-tour",
+  "private": true,
+  "scripts": {
+    "test": "node --experimental-vm-modules --test tests/*.test.cjs && node sim.js 100",
+    "test:app": "node --experimental-vm-modules --test tests/*.test.cjs",
+    "test:sim": "node sim.js 100"
+  },
+  "engines": { "node": ">=22" }
+}

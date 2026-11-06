@@ -1,0 +1,80 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { createHarness } = require('./harness.cjs');
+
+test('connection routes lobby, authorized actions, disconnect and guest snapshots', async () => {
+  const h = createHarness();
+  const app = await h.start();
+  const sent = [], calls = [];
+  app.net = { sendTo: (id, msg) => sent.push({ id, msg }), peer: { id: 'guest' }, sendHost() {} };
+  app.mode = 'host';
+  app.lobby = { players: [{ name: 'Host', token: '🐟', peerId: 'host' }], started: false };
+  const { createConnection } = h.load('src/connection.js').namespace;
+  const { createSession } = h.load('src/session.js').namespace;
+  const session = createSession({
+    shuffledBotNames() {}, setNetStatus() {},
+    onState: (...args) => calls.push({ name: 'onState', args }),
+  });
+  const deps = Object.fromEntries(['setNetStatus', 'showLobby', 'applyLobbyProfile', 'broadcastLobby', 'publicLobby', 'leaveLobby', 'dispatch', 'afterChange', 'onState'].map(name => [name, (...args) => calls.push({ name, args })]));
+  deps.changeController = session.changeController;
+  deps.receiveState = session.receiveState;
+  const connection = createConnection(deps);
+  connection.hostOnMessage('guest', { type: 'hello', name: 'Friend', token: '🐺' });
+  assert.equal(app.lobby.players.length, 2);
+  assert.equal(app.lobby.players[1].peerId, 'guest');
+  assert.equal(calls.at(-1).name, 'broadcastLobby');
+  app.lobby.started = true;
+  app.state = app.E.createGame(app.lobby.players, {});
+  app.state.players.forEach((p, i) => { p.peerId = app.lobby.players[i].peerId; });
+  connection.hostOnMessage('stranger', { type: 'action', action: { type: 'roll' } });
+  assert.equal(calls.filter(c => c.name === 'dispatch').length, 0);
+  connection.hostOnMessage('guest', { type: 'action', action: { type: 'roll' } });
+  assert.equal(calls.at(-1).name, 'dispatch');
+  assert.equal(calls.at(-1).args[0], 1);
+  connection.onPeerLeft('guest');
+  assert.equal(app.state.players[1].isBot, true);
+  assert.equal(app.state.players[1].connected, false);
+  connection.hostOnMessage('guest', { type: 'hello' });
+  assert.equal(app.state.players[1].isBot, false);
+  assert.equal(app.state.players[1].connected, true);
+  app.mode = 'client';
+  const snapshot = app.E.createGame(app.lobby.players, {});
+  snapshot.players[1].peerId = 'guest';
+  connection.clientOnMessage({ type: 'state', state: snapshot, yourIdx: 1 });
+  assert.equal(app.state, snapshot);
+  assert.equal(app.myIdx, 1);
+  assert.equal(calls.at(-1).name, 'onState');
+});
+
+test('bot takeover travels through session and broadcasts a consistent state and lobby', async () => {
+  const h = createHarness(), app = await h.start();
+  const messages = [];
+  app.mode = 'host';
+  const players = [{ name: 'Host', peerId: 'host' }, { name: 'Friend', peerId: 'friend' }, { name: 'Bot', isBot: true }];
+  app.lobby = { players: players.map(p => ({ ...p })), started: true };
+  app.state = app.E.createGame(players, {});
+  app.net = { sendTo: (id, msg) => messages.push({ id, msg: JSON.parse(JSON.stringify(msg)) }) };
+  const { createSession } = h.load('src/session.js').namespace;
+  const session = createSession({ shuffledBotNames() {}, setNetStatus() {}, onState() {} });
+  const { createConnection } = h.load('src/connection.js').namespace;
+  const connection = createConnection({ changeController: session.changeController, publicLobby: () => app.lobby });
+  const before = JSON.stringify(app.state);
+  connection.hostOnMessage('new', { type: 'claimPlayer', index: 2 });
+  assert.equal(JSON.stringify(app.state), before, 'a claim requires the hello handshake');
+  connection.hostOnMessage('new', { type: 'hello' });
+  assert.equal(messages.at(-1).msg.type, 'claimOptions');
+  connection.hostOnMessage('new', { type: 'claimPlayer', index: 1 });
+  assert.equal(messages.at(-1).msg.type, 'rejected');
+  assert.equal(JSON.stringify(app.state), before, 'a human cannot be claimed');
+  connection.hostOnMessage('new', { type: 'hello' });
+  app.state.events = [{ type: 'buy', tile: 1 }];
+  connection.hostOnMessage('new', { type: 'claimPlayer', index: 2 });
+  assert.equal(app.state.players[2].peerId, 'new');
+  assert.equal(app.state.players[2].isBot, false);
+  assert.equal(app.lobby.players[2].peerId, 'new');
+  assert.equal(app.lobby.players[2].isBot, false);
+  const snapshots = messages.filter(m => m.msg.type === 'state');
+  assert.equal(snapshots.length, 2, 'existing friend and new player receive the transition');
+  assert.ok(snapshots.every(m => m.msg.state.events.length === 0));
+  assert.equal(snapshots.find(m => m.id === 'new').msg.yourIdx, 2);
+});
