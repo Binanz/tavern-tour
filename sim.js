@@ -163,21 +163,5 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   const mv = s4.events.find((e) => e.type === 'move');
   if (!mv || mv.teleport || mv.steps !== 11) throw new Error('le voyage doit avancer de 11 cases: ' + JSON.stringify(mv));
 
-  // Échanges
-  const s5 = E.createGame([{ name: 'A' }, { name: 'B', isBot: true }], {}, rng, 0);
-  s5.tiles[1].owner = 0; s5.tiles[3].owner = 1;
-  if (E.apply(s5, 0, { type: 'tradeOffer', to: 1, give: { tiles: [1], cash: 0 }, get: { tiles: [3], cash: 0 } }, rng, 0).ok !== true) throw new Error('proposition refusée');
-  if (E.apply(s5, 0, { type: 'roll' }, rng, 0).ok) throw new Error('on ne doit pas lancer pendant un échange');
-  if (E.apply(s5, 0, { type: 'tradeAccept' }, rng, 0).ok) throw new Error('A ne peut pas accepter son propre échange');
-  const resp = E.botTradeResponse(s5, 1);
-  if (!resp) throw new Error('le bot doit répondre');
-  if (!E.apply(s5, 1, { type: 'tradeDecline' }, rng, 0).ok) throw new Error('refus impossible');
-  if (s5.trade) throw new Error('échange toujours en cours');
-  E.apply(s5, 0, { type: 'tradeOffer', to: 1, give: { tiles: [1], cash: 100000 }, get: { tiles: [3], cash: 0 } }, rng, 0);
-  if (!E.apply(s5, 1, { type: 'tradeAccept' }, rng, 0).ok) throw new Error('acceptation impossible');
-  if (s5.tiles[1].owner !== 1 || s5.tiles[3].owner !== 0 || s5.players[0].cash !== 1900000 || s5.players[1].cash !== 2100000) throw new Error('échange mal appliqué');
-  // Échange cadeau gratuit évalué par le bot : accepté
-  E.apply(s5, 0, { type: 'tradeOffer', to: 1, give: { tiles: [], cash: 50000 }, get: { tiles: [], cash: 0 } }, rng, 0);
-  if (E.botTradeResponse(s5, 1).type !== 'tradeAccept') throw new Error('le bot devrait accepter un cadeau');
   console.log('Tests unitaires OK');
 })();

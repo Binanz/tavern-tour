@@ -28,7 +28,8 @@
     gameShown: false,
     lastLogLen: 0,
     lastSeen: {}, lastHostSeen: null,
-    prevCash: null, prevCurrent: -1, prevTurnCount: 0, autoEndTimer: null, tradeTimer: null, tradeShownKey: null,
+    prevCash: null, prevCurrent: -1, prevTurnCount: 0, autoEndTimer: null,
+    hostLostTimer: null, hostLostShown: false,
   };
   const LEVEL_LABELS = ['Terrain nu', '1 maison', '2 maisons', '3 maisons', 'Hôtel'];
 
@@ -41,9 +42,7 @@
       for (const id of Object.keys(app.lastSeen)) {
         if (now - app.lastSeen[id] > 10000) { delete app.lastSeen[id]; app.net.kick(id); onPeerLeft(id); }
       }
-    } else if (app.mode === 'client' && app.lastHostSeen && now - app.lastHostSeen > 12000) {
-      app.lastHostSeen = null; hostLost();
-    }
+    } else if (app.mode === 'client' && app.lastHostSeen && now - app.lastHostSeen > 12000) scheduleHostLost();
   }, 3000);
 
   // ============================================================
@@ -156,7 +155,7 @@
     TOKENS.forEach((tk, i) => {
       const b = document.createElement('button');
       b.className = 'token-btn'; b.type = 'button'; b.textContent = tk; b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', i === 0 ? 'true' : 'false');
+      b.setAttribute('aria-checked', TOKENS[i] === app.me.token ? 'true' : 'false');
       b.onclick = () => { app.me.token = tk; picker.querySelectorAll('.token-btn').forEach((x) => x.setAttribute('aria-checked', x === b ? 'true' : 'false')); SFX.step(); };
       picker.appendChild(b);
     });
@@ -172,6 +171,7 @@
     $('btnLocal').onclick = localGame;
     $('btnStart').onclick = startGame;
     $('btnLeaveLobby').onclick = leaveLobby;
+    $('btnSaveLobbyProfile').onclick = saveLobbyProfile;
     $('btnCopy').onclick = copyCode;
     $('btnRules').onclick = showRules;
     $('btnMute').onclick = () => { app.muted = !app.muted; $('btnMute').setAttribute('aria-pressed', String(app.muted)); if (!app.muted) SFX.coin(); };
@@ -213,9 +213,9 @@
     $('btnJoin').disabled = true;
     app.mode = 'client';
     app.net = new Net({
-      onReady: () => { setNetStatus('Connecté, en attente de l’hôte…'); app.net.sendHost({ type: 'hello', name: app.me.name, token: app.me.token }); },
+      onReady: () => { app.lastHostSeen = Date.now(); setNetStatus('Connecté, en attente de l’hôte…'); app.net.sendHost({ type: 'hello', name: app.me.name, token: app.me.token }); },
       onMessage: (from, msg) => clientOnMessage(msg),
-      onHostLost: () => hostLost(),
+      onHostLost: () => scheduleHostLost(),
       onError: (msg) => { setNetStatus(msg, true); $('btnJoin').disabled = false; app.net && app.net.destroy(); app.net = null; app.mode = null; },
     });
     try { app.net.join(code); } catch (e) { setNetStatus(e.message, true); $('btnJoin').disabled = false; app.mode = null; }
@@ -249,6 +249,7 @@
     $('waitHost').hidden = isHost;
     $('durationSelect').value = L.durationMin;
     $('fillBots').checked = L.fillBots;
+    renderLobbyProfile();
     const ul = $('seats'); ul.innerHTML = '';
     for (let i = 0; i < RULES.maxPlayers; i++) {
       const p = L.players[i];
@@ -264,6 +265,54 @@
     }
     $('btnStart').disabled = !(L.players.length >= 2 || L.fillBots);
   }
+  function renderLobbyProfile() {
+    const L = app.lobby; const player = L && L.players[app.myIdx];
+    if (!player) return;
+    const nameInput = $('lobbyNameInput');
+    if (document.activeElement !== nameInput) nameInput.value = player.name;
+    const picker = $('lobbyTokenPicker'); picker.innerHTML = '';
+    TOKENS.forEach((token) => {
+      const b = document.createElement('button');
+      b.className = 'token-btn'; b.type = 'button'; b.textContent = token;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(token === app.me.token));
+      b.disabled = L.players.some((p, i) => i !== app.myIdx && p.token === token);
+      b.onclick = () => {
+        app.me.token = token;
+        $('lobbyProfileHint').textContent = '';
+        picker.querySelectorAll('.token-btn').forEach((button) => button.setAttribute('aria-checked', String(button === b)));
+      };
+      picker.appendChild(b);
+    });
+  }
+  function saveLobbyProfile() {
+    if (!app.lobby || app.lobby.started) return;
+    const name = $('lobbyNameInput').value;
+    if (app.mode === 'host') {
+      applyLobbyProfile(app.myIdx, name, app.me.token);
+      broadcastLobby();
+      $('lobbyProfileHint').textContent = 'Profil enregistré.';
+    } else if (app.mode === 'client' && app.net) {
+      app.net.sendHost({ type: 'profile', name, token: app.me.token });
+      $('lobbyProfileHint').textContent = 'Mise à jour envoyée…';
+    }
+  }
+  function applyLobbyProfile(idx, requestedName, requestedToken) {
+    const L = app.lobby; const player = L && L.players[idx];
+    if (!player) return;
+    let name = String(requestedName || '').trim().slice(0, 16) || 'Aventurier';
+    if (L.players.some((p, i) => i !== idx && p.name.toLowerCase() === name.toLowerCase())) {
+      const base = name.slice(0, 13);
+      let suffix = 2;
+      while (L.players.some((p, i) => i !== idx && p.name.toLowerCase() === `${base} ${suffix}`.toLowerCase())) suffix++;
+      name = `${base} ${suffix}`;
+    }
+    const tokenTaken = L.players.some((p, i) => i !== idx && p.token === requestedToken);
+    player.name = name;
+    if (TOKENS.includes(requestedToken) && !tokenTaken) player.token = requestedToken;
+    app.me.name = player.name;
+    app.me.token = player.token;
+  }
   function broadcastLobby() {
     renderLobby();
     if (app.mode !== 'host' || !app.net) return;
@@ -272,6 +321,7 @@
   const publicLobby = () => ({ code: app.lobby.code, players: app.lobby.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot })), durationMin: app.lobby.durationMin, fillBots: app.lobby.fillBots, started: app.lobby.started });
 
   function leaveLobby() {
+    clearTimeout(app.hostLostTimer); app.hostLostTimer = null;
     if (app.net) app.net.destroy();
     app.net = null; app.mode = null; app.lobby = null;
     $('lobbyPanel').hidden = true; $('modesPanel').hidden = false; $('btnHost').disabled = false; $('btnJoin').disabled = false; setNetStatus('');
@@ -303,6 +353,14 @@
       SFX.coin();
       return;
     }
+    if (msg.type === 'profile' && app.lobby && !app.lobby.started) {
+      const idx = app.lobby.players.findIndex((p) => p.peerId === from);
+      if (idx > 0) {
+        applyLobbyProfile(idx, msg.name, msg.token);
+        broadcastLobby();
+      }
+      return;
+    }
     if (msg.type === 'action' && app.state) {
       const idx = app.state.players.findIndex((p) => p.peerId === from);
       if (idx < 0) return;
@@ -331,11 +389,15 @@
   // --- messages côté invité ---
   function clientOnMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
+    clearTimeout(app.hostLostTimer); app.hostLostTimer = null;
     app.lastHostSeen = Date.now();
     if (msg.type === 'ping') { app.net.sendHost({ type: 'pong' }); return; }
     switch (msg.type) {
       case 'lobby':
         app.lobby = msg.lobby; app.myIdx = msg.yourIdx; setNetStatus('');
+        app.me.name = app.lobby.players[app.myIdx].name;
+        app.me.token = app.lobby.players[app.myIdx].token;
+        $('lobbyProfileHint').textContent = 'Profil enregistré.';
         if (!app.gameShown) showLobby();
         break;
       case 'state':
@@ -347,7 +409,17 @@
       case 'rejected': setNetStatus(msg.reason, true); $('btnJoin').disabled = false; app.net.destroy(); app.net = null; app.mode = null; break;
     }
   }
+  function scheduleHostLost() {
+    if (app.hostLostShown || app.hostLostTimer || app.mode !== 'client') return;
+    const lastSeen = app.lastHostSeen;
+    app.hostLostTimer = setTimeout(() => {
+      app.hostLostTimer = null;
+      if (app.mode === 'client' && app.net && app.lastHostSeen === lastSeen) hostLost();
+    }, 20000);
+  }
   function hostLost() {
+    if (app.hostLostShown) return;
+    app.hostLostShown = true;
     openModal(`<h2>Connexion perdue</h2><p>L’hôte a quitté la partie ou la connexion a été coupée. Il faut créer une nouvelle salle.</p><div class="btn-row"><button class="btn primary" onclick="location.reload()">Retour à l’accueil</button></div>`, { noClose: true });
   }
 
@@ -374,7 +446,7 @@
     app.state = E.createGame(players, { durationMin });
     app.state.players.forEach((p, i) => { if (players[i].peerId) p.peerId = players[i].peerId; });
     app.displayedPos = app.state.players.map(() => 0);
-    app.prevCash = null; app.prevCurrent = -1; app.prevTurnCount = 0; app.tradeShownKey = null;
+    app.prevCash = null; app.prevCurrent = -1; app.prevTurnCount = 0;
     app.pawnQueue = app.state.players.map(() => []);
     app.pawnBusy = app.state.players.map(() => false);
     clearInterval(app.tickTimer);
@@ -407,7 +479,6 @@
     onState();
     scheduleBot();
     scheduleAutoEnd();
-    scheduleTradeTimeout();
   }
 
   // Fin de tour automatique : plus de bouton, le tour passe tout seul après les animations.
@@ -419,26 +490,12 @@
     if (p.isBot) return; // géré par scheduleBot
     app.autoEndTimer = setTimeout(() => { if (app.state === s && s.turn.step === 'done') dispatch(s.current, { type: 'endTurn' }, null); }, app.animDelay + 1700);
   }
-  // Échanges : un bot répond vite, un humain a un délai limité.
-  function scheduleTradeTimeout() {
-    clearTimeout(app.tradeTimer);
-    const s = app.state;
-    if (!s || s.phase !== 'playing' || !s.trade) return;
-    const tr = s.trade; const target = s.players[tr.to];
-    if (target.isBot) {
-      app.tradeTimer = setTimeout(() => { if (app.state === s && s.trade === tr) { const a = E.botTradeResponse(s, tr.to); if (a) dispatch(tr.to, a, null); } }, 1800);
-    } else {
-      const left = Math.max(500, RULES.tradeTimeoutMs - (Date.now() - tr.at));
-      app.tradeTimer = setTimeout(() => { if (app.state === s && s.trade === tr) dispatch(tr.to, { type: 'tradeDecline' }, null); }, left);
-    }
-  }
-
   function scheduleBot() {
     clearTimeout(app.botTimer);
     const s = app.state;
     if (!s || s.phase !== 'playing') return;
     const p = s.players[s.current];
-    if (!p.isBot || s.trade) return;
+    if (!p.isBot) return;
     const a = E.botAction(s, s.current);
     if (!a) return;
     const base = { roll: 1300, jailRoll: 1300, endTurn: 1100, sell: 800, buy: 1200, build: 1200 }[a.type] || 1000;
@@ -585,10 +642,6 @@
       if (ev.type === 'pay') { const e2 = ev; setTimeout(() => { if (typeof e2.to === 'number' && s.players[e2.to]) flashTile(s.players[e2.from].pos, 'bad'); }, delay); }
       if (ev.type === 'buy' || ev.type === 'build') { const tl = ev.tile; setTimeout(() => flashTile(tl, 'good'), delay); }
       if (ev.type === 'buyout') { const tl = ev.tile; setTimeout(() => { flashTile(tl, 'good'); SFX.card(); }, delay); }
-      if (ev.type === 'trade') setTimeout(SFX.card, delay);
-      if (ev.type === 'tradeOffer' && ev.to === app.myIdx) setTimeout(SFX.card, delay);
-      if (ev.type === 'tradeDeclined' && ev.from === app.myIdx) setTimeout(() => toast(`${s.players[ev.to].name} a refusé votre échange.`), delay);
-      if (ev.type === 'trade' && (ev.from === app.myIdx || ev.to === app.myIdx)) setTimeout(() => toast('Échange conclu.'), delay);
       if (ev.type === 'jail' || ev.type === 'bankrupt') setTimeout(SFX.bad, delay);
       if (ev.type === 'gameover') setTimeout(() => { showEnd(); SFX.win(); }, delay + 300);
     }
@@ -616,9 +669,6 @@
     if (myTurnNow && (app.prevCurrent !== s.current || app.prevTurnCount !== s.turnCount)) setTimeout(showTurnOverlay, app.animDelay);
     app.prevCurrent = s.current; app.prevTurnCount = s.turnCount;
     const board = $('board'); board.classList.toggle('myturn', myTurnNow); board.style.setProperty('--mycolor', s.players[app.myIdx] ? s.players[app.myIdx].color : '#f3d98b');
-    // proposition d'échange qui m'est adressée
-    if (s.trade && s.trade.to === app.myIdx) { const key = s.trade.from + ':' + s.trade.at; if (app.tradeShownKey !== key) { app.tradeShownKey = key; setTimeout(() => showTradeRequest(), app.animDelay); } }
-    else if (app.tradeShownKey && !s.trade) { app.tradeShownKey = null; if ($('modalCard').querySelector('.trade-request')) closeModal(); }
     // resynchronise les pions qui ne bougent pas
     s.players.forEach((p, i) => { if (!app.pawnBusy[i] && !app.pawnQueue[i].length && app.displayedPos[i] !== p.pos && !(s.events || []).some((e) => e.type === 'move' && e.player === i)) app.displayedPos[i] = p.pos; });
     positionAllPawns();
@@ -747,8 +797,6 @@
     if (pending) { el.innerHTML = `<div class="prompt muted">…</div>`; return; }
     const lastPay = t.lastPay && (['done', 'buyout', 'debt'].includes(t.step) || (t.step === 'roll' && t.rolledThisTurn)) ? t.lastPay : null;
     if (!myTurn) {
-      if (s.trade && s.trade.from === s.current && s.trade.to !== me) { el.innerHTML = `<div class="prompt muted">${esc(p.name)} propose un échange à ${esc(s.players[s.trade.to].name)}…</div>`; return; }
-      if (s.trade && s.trade.to === me) { el.innerHTML = `<div class="prompt">${esc(p.name)} vous propose un échange.</div><div class="btn-row"><button class="btn primary" id="btnSeeTrade">Voir la proposition</button></div>`; $('btnSeeTrade').onclick = showTradeRequest; return; }
       const what = { roll: 'lance les dés', jail: 'est naufragé sur l’Île perdue', buy: `hésite à acheter ${t.offer != null ? BOARD[t.offer].name : ''}`, build: 'envisage de construire', buyout: `peut racheter ${t.offer != null ? BOARD[t.offer].name : ''}`, teleport: 'choisit une destination', championship: 'organise les Championnats', debt: 'doit vendre pour payer sa dette', done: 'termine son tour' }[t.step] || '';
       el.innerHTML = `${payNoteHTML(s, lastPay)}<div class="prompt muted">${esc(p.name)} ${what}…<small>Cliquez sur une case pour voir ses loyers.</small></div>`;
       return;
@@ -757,13 +805,8 @@
     let html = '';
     switch (t.step) {
       case 'roll': {
-        if (s.trade && s.trade.from === me) {
-          html = `<div class="prompt">Proposition envoyée à <b>${esc(s.players[s.trade.to].name)}</b>.<small>En attente de sa réponse…</small></div><div class="btn-row"><button class="btn" data-act="tradeCancel">Retirer la proposition</button></div>`;
-          break;
-        }
-        const others = E.alive(s).filter((k) => k !== me);
-        html = `<div class="prompt">${t.doubles > 0 ? 'Double ! Relancez les dés.' : 'Lancez les dés.'}<small>Avant de lancer : cliquez sur une de vos cases pour la revendre${others.length ? ', ou proposez un échange' : ''}.</small></div>
-          <button class="btn primary big" data-act="roll">🎲 Lancer les dés</button>${others.length ? '<button class="btn ghost trade-btn" id="btnTrade">🤝 Proposer un échange</button>' : ''}`;
+        html = `<div class="prompt">${t.doubles > 0 ? 'Double ! Relancez les dés.' : 'Lancez les dés.'}<small>Avant de lancer : cliquez sur une de vos cases pour la revendre.</small></div>
+          <button class="btn primary big" data-act="roll">🎲 Lancer les dés</button>`;
         break;
       }
       case 'jail':
@@ -808,58 +851,6 @@
     el.innerHTML = html;
     el.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => { act({ type: b.dataset.act }); }));
     el.querySelectorAll('.lvl[data-houses]').forEach((b) => (b.onclick = () => { act({ type: t.step === 'buy' ? 'buy' : 'build', houses: +b.dataset.houses }); }));
-    const tb = el.querySelector('#btnTrade'); if (tb) tb.onclick = openTradeComposer;
-  }
-
-  // ============================================================
-  // Échanges
-  // ============================================================
-  function tradeChip(i, pressed) {
-    const s = app.state; const t = s.tiles[i];
-    return `<button type="button" class="tchip" data-tile="${i}" aria-pressed="${pressed ? 'true' : 'false'}" style="--g:${groupColor(i)}"><i></i>${esc(BOARD[i].name)}${t.houses ? ` (${LEVEL_LABELS[t.houses].toLowerCase()})` : ''}<small>${fmt(E.tileValue(s, i))}</small></button>`;
-  }
-  function openTradeComposer() {
-    const s = app.state; const me = app.myIdx;
-    const others = E.alive(s).filter((k) => k !== me);
-    if (!others.length) return;
-    let partner = others[0];
-    const sel = { give: new Set(), get: new Set() };
-    const render = () => {
-      const o = s.players[partner];
-      const mine = s.tiles.map((t, k) => (t && t.owner === me ? k : -1)).filter((k) => k >= 0);
-      const theirs = s.tiles.map((t, k) => (t && t.owner === partner ? k : -1)).filter((k) => k >= 0);
-      const c = openModal(`<h2>🤝 Proposer un échange</h2>
-        <div class="trade-partners">${others.map((k) => `<button type="button" class="btn small" data-partner="${k}" aria-pressed="${k === partner}">${s.players[k].token} ${esc(s.players[k].name)}</button>`).join('')}</div>
-        <div class="trade-grid">
-          <div class="trade-col"><h4>Vous donnez</h4><div class="tchips" id="giveChips">${mine.length ? mine.map((k) => tradeChip(k, sel.give.has(k))).join('') : '<p class="muted">Aucune case</p>'}</div><label class="trade-cash">Or <input type="number" id="giveCash" min="0" step="10000" max="${s.players[me].cash}" placeholder="0" /></label></div>
-          <div class="trade-col"><h4>${esc(o.name)} donne</h4><div class="tchips" id="getChips">${theirs.length ? theirs.map((k) => tradeChip(k, sel.get.has(k))).join('') : '<p class="muted">Aucune case</p>'}</div><label class="trade-cash">Or <input type="number" id="getCash" min="0" step="10000" max="${o.cash}" placeholder="0" /></label></div>
-        </div>
-        <p class="muted" style="font-size:var(--text-xs)">${esc(o.name)} aura ${Math.round(RULES.tradeTimeoutMs / 1000)} s pour répondre. Les maisons suivent la case.</p>
-        <div class="btn-row" style="margin-top:12px"><button class="btn primary" id="sendTrade">Envoyer la proposition</button><button class="btn" data-close>Annuler</button></div>`);
-      c.querySelectorAll('[data-partner]').forEach((b) => (b.onclick = () => { partner = +b.dataset.partner; sel.get.clear(); render(); }));
-      c.querySelectorAll('#giveChips .tchip').forEach((b) => (b.onclick = () => { const k = +b.dataset.tile; sel.give.has(k) ? sel.give.delete(k) : sel.give.add(k); b.setAttribute('aria-pressed', String(sel.give.has(k))); }));
-      c.querySelectorAll('#getChips .tchip').forEach((b) => (b.onclick = () => { const k = +b.dataset.tile; sel.get.has(k) ? sel.get.delete(k) : sel.get.add(k); b.setAttribute('aria-pressed', String(sel.get.has(k))); }));
-      c.querySelector('#sendTrade').onclick = () => {
-        const give = { tiles: [...sel.give], cash: Math.max(0, Math.floor(+c.querySelector('#giveCash').value || 0)) };
-        const get = { tiles: [...sel.get], cash: Math.max(0, Math.floor(+c.querySelector('#getCash').value || 0)) };
-        if (!give.tiles.length && !get.tiles.length && !give.cash && !get.cash) { toast('La proposition est vide.'); return; }
-        closeModal();
-        act({ type: 'tradeOffer', to: partner, give, get });
-      };
-    };
-    render();
-  }
-  function showTradeRequest() {
-    const s = app.state; const tr = s.trade; if (!tr || tr.to !== app.myIdx) return;
-    const from = s.players[tr.from];
-    const side = (x) => [x.tiles.map((i) => `${esc(BOARD[i].name)}${s.tiles[i].houses ? ` (${LEVEL_LABELS[s.tiles[i].houses].toLowerCase()})` : ''} <small class="muted">${fmt(E.tileValue(s, i))}</small>`).join('<br>'), x.cash ? `${fmt(x.cash)} d’or` : ''].filter(Boolean).join('<br>') || '<span class="muted">rien</span>';
-    const left = Math.max(0, Math.round((RULES.tradeTimeoutMs - (Date.now() - tr.at)) / 1000));
-    const c = openModal(`<div class="trade-request"><h2>🤝 ${esc(from.name)} vous propose un échange</h2>
-      <div class="trade-grid"><div class="trade-col"><h4>Vous recevez</h4><div>${side(tr.give)}</div></div><div class="trade-col"><h4>Vous donnez</h4><div>${side(tr.get)}</div></div></div>
-      <p class="muted" style="font-size:var(--text-xs)">Sans réponse dans ${left} s, la proposition est refusée.</p>
-      <div class="btn-row"><button class="btn primary" id="accTrade">Accepter</button><button class="btn danger" id="decTrade">Refuser</button></div></div>`, { noClose: true });
-    c.querySelector('#accTrade').onclick = () => { closeModal(); act({ type: 'tradeAccept' }); };
-    c.querySelector('#decTrade').onclick = () => { closeModal(); act({ type: 'tradeDecline' }); };
   }
 
   // ============================================================
@@ -941,7 +932,7 @@
   function showRules() {
     openModal(`<div class="rules"><h2>Règles de la taverne</h2>
       <h3>But</h3><ul><li>Quand le chrono sonne, le joueur le plus riche gagne : or + valeur des cases et constructions.</li><li>La partie s’arrête aussi si tous les autres joueurs font faillite.</li></ul>
-      <h3>Tour de jeu</h3><ul><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue. Le tour passe automatiquement au suivant.</li><li><b>Case libre</b> : achetez-la directement au niveau voulu — terrain nu, ou avec 1, 2 ou 3 maisons d’un coup. La 3e maison se débloque après un premier passage par la Taverne.</li><li><b>Case à vous</b> : montez de niveau (jusqu’à 3 maisons). Avec 3 maisons, en y retombant, construisez l’<b>hôtel</b> : loyer maximal et case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour ${RULES.buyoutMult}x ce que son propriétaire a investi (sauf hôtel). L’or lui est versé et les maisons restent.</li><li>Posséder tous les serviteurs d’un type double le loyer des terrains nus.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li><li><b>Échanges</b> : avant de lancer les dés, proposez cases et or à un adversaire ; il a ${Math.round(RULES.tradeTimeoutMs / 1000)} s pour accepter.</li></ul>
+      <h3>Tour de jeu</h3><ul><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue. Le tour passe automatiquement au suivant.</li><li><b>Case libre</b> : achetez-la directement au niveau voulu — terrain nu, ou avec 1, 2 ou 3 maisons d’un coup. La 3e maison se débloque après un premier passage par la Taverne.</li><li><b>Case à vous</b> : montez de niveau (jusqu’à 3 maisons). Avec 3 maisons, en y retombant, construisez l’<b>hôtel</b> : loyer maximal et case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour ${RULES.buyoutMult}x ce que son propriétaire a investi (sauf hôtel). L’or lui est versé et les maisons restent.</li><li>Posséder tous les serviteurs d’un type double le loyer des terrains nus.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li></ul>
       <h3>Cases spéciales</h3><ul><li><b>Chance</b> : tirez une carte (gains, pertes, déplacements, carte de sortie…).</li><li><b>Île perdue</b> : payez ${fmt(RULES.jailFee)} ou faites un double pour partir (3 essais).</li><li><b>Championnats</b> : pour ${fmt(RULES.championshipFee)}, le loyer d’une de vos cases est multiplié (x2, x3… jusqu’à x${RULES.championshipMaxMult}).</li><li><b>Tour du monde</b> : pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous ; si vous passez par la Taverne, vous touchez les ${fmt(RULES.salary)}.</li><li><b>Serviteurs neutres</b> (Brann, Drakkari, Titus, Leeroy) : loyer de ${fmt(RULES.stationRents[0])} à ${fmt(RULES.stationRents[3])} selon le nombre possédé. Ni maisons ni rachat.</li><li><b>Services</b> (Sombre Don, Bibelot) : loyer = dés x ${fmt(RULES.utilityMult[0])}, ou x ${fmt(RULES.utilityMult[1])} avec les deux.</li></ul>
       <h3>Dettes</h3><ul><li>Si vous ne pouvez pas payer, revendez maisons puis propriétés à la banque à 50 % de leur valeur. Sinon, faillite : vos biens vont au créancier.</li></ul>
       <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-close>Compris</button></div></div>`);

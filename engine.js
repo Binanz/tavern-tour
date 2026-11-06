@@ -53,7 +53,6 @@
       current: 0,
       turn: newTurn(),
       championship: null,
-      trade: null,
       deck: shuffle(CARDS.map((_, i) => i), rng),
       deckPos: 0,
       log: [],
@@ -441,7 +440,6 @@
     do { i = (i + 1) % state.players.length; } while (state.players[i].bankrupt);
     state.current = i;
     state.turnCount++;
-    state.trade = null;
     state.turn = newTurn();
     const p = state.players[i];
     if (p.inJail) state.turn.step = 'jail';
@@ -484,9 +482,7 @@
     const p = state.players[pIdx];
     const t = state.turn;
     if (p.bankrupt) return ERR('Joueur en faillite.');
-    if (action.type === 'tradeAccept' || action.type === 'tradeDecline') return tradeRespond(state, pIdx, action.type === 'tradeAccept');
     if (pIdx !== state.current) return ERR('Ce n’est pas votre tour.');
-    if (state.trade && !['tradeCancel', 'sell'].includes(action.type)) return ERR('Attendez la réponse à votre proposition d’échange.');
 
     switch (action.type) {
       case 'roll': {
@@ -682,58 +678,9 @@
         nextTurn(state, now);
         return OK;
       }
-      case 'tradeOffer': {
-        if (t.step !== 'roll') return ERR('Proposez vos échanges avant de lancer les dés.');
-        if (state.trade) return ERR('Une proposition est déjà en cours.');
-        const to = action.to | 0;
-        const other = state.players[to];
-        if (!other || to === pIdx || other.bankrupt) return ERR('Partenaire invalide.');
-        const give = normTrade(action.give), get = normTrade(action.get);
-        if (!give.tiles.length && !get.tiles.length && !give.cash && !get.cash) return ERR('La proposition est vide.');
-        if (give.cash > p.cash) return ERR('Vous n’avez pas autant d’or.');
-        if (get.cash > other.cash) return ERR(`${other.name} n’a pas autant d’or.`);
-        if (give.tiles.some((i) => !isOwnable(i) || state.tiles[i].owner !== pIdx)) return ERR('Vous ne possédez pas ces cases.');
-        if (get.tiles.some((i) => !isOwnable(i) || state.tiles[i].owner !== to)) return ERR(`${other.name} ne possède pas ces cases.`);
-        state.trade = { from: pIdx, to, give, get, at: now };
-        ev(state, { type: 'tradeOffer', from: pIdx, to });
-        log(state, `${p.name} propose un échange à ${other.name}.`, 'card');
-        return OK;
-      }
-      case 'tradeCancel': {
-        if (!state.trade || state.trade.from !== pIdx) return ERR('Aucune proposition à annuler.');
-        state.trade = null;
-        log(state, `${p.name} retire sa proposition d’échange.`);
-        return OK;
-      }
       default:
         return ERR('Action inconnue.');
     }
-  }
-
-  function normTrade(x) {
-    x = x || {};
-    const cash = Math.max(0, Math.floor(+x.cash || 0));
-    const tiles = Array.from(new Set((x.tiles || []).map((i) => i | 0)));
-    return { cash, tiles };
-  }
-  function tradeRespond(state, pIdx, accept) {
-    const tr = state.trade;
-    if (!tr || tr.to !== pIdx) return ERR('Aucune proposition ne vous attend.');
-    const from = state.players[tr.from], to = state.players[tr.to];
-    state.trade = null;
-    if (!accept) { log(state, `${to.name} refuse l’échange proposé par ${from.name}.`, 'warn'); ev(state, { type: 'tradeDeclined', from: tr.from, to: tr.to }); return OK; }
-    // revalidation
-    if (from.bankrupt || to.bankrupt) return ERR('Échange impossible.');
-    if (tr.give.cash > from.cash || tr.get.cash > to.cash) { log(state, `L’échange a échoué : plus assez d’or.`, 'warn'); return ERR('Plus assez d’or pour conclure.'); }
-    if (tr.give.tiles.some((i) => state.tiles[i].owner !== tr.from) || tr.get.tiles.some((i) => state.tiles[i].owner !== tr.to)) { log(state, `L’échange a échoué : les cases ont changé de main.`, 'warn'); return ERR('Les cases ont changé de main.'); }
-    from.cash -= tr.give.cash; to.cash += tr.give.cash;
-    to.cash -= tr.get.cash; from.cash += tr.get.cash;
-    tr.give.tiles.forEach((i) => { state.tiles[i].owner = tr.to; });
-    tr.get.tiles.forEach((i) => { state.tiles[i].owner = tr.from; });
-    ev(state, { type: 'trade', from: tr.from, to: tr.to });
-    const desc = (side) => [side.tiles.map((i) => BOARD[i].name).join(', '), side.cash ? fmt(side.cash) + ' d’or' : ''].filter(Boolean).join(' + ') || 'rien';
-    log(state, `Échange conclu : ${from.name} donne ${desc(tr.give)} contre ${desc(tr.get)} de ${to.name}.`, 'ok');
-    return OK;
   }
 
   // Chrono : à appeler régulièrement côté hôte.
@@ -828,33 +775,8 @@
     return null;
   }
 
-  // Réponse d'un bot à une proposition d'échange qui lui est adressée.
-  function botTradeResponse(state, pIdx) {
-    const tr = state.trade;
-    if (!tr || tr.to !== pIdx) return null;
-    const me = state.players[pIdx];
-    const groupCount = (owner, g) => BOARD.filter((x, k) => x.type === 'property' && x.group === g && state.tiles[k].owner === owner).length;
-    const groupSize = (g) => BOARD.filter((x) => x.type === 'property' && x.group === g).length;
-    const valueFor = (tiles, receiving) => tiles.reduce((sum, i) => {
-      let v = tileValue(state, i);
-      if (BOARD[i].type === 'property') {
-        const g = BOARD[i].group; const mine = groupCount(pIdx, g);
-        if (receiving && mine === groupSize(g) - 1) v *= 1.8;       // complète mon type
-        else if (receiving && mine > 0) v *= 1.25;
-        if (!receiving && mine >= 2) v *= 1.6;                        // je casse mon type
-        if (!receiving && groupCount(tr.from, g) === groupSize(g) - 1) v *= 1.8; // ça complète le sien
-        if (!receiving && state.tiles[i].houses >= HOTEL) v *= 1.5;
-      }
-      return sum + v;
-    }, 0);
-    const gain = valueFor(tr.give.tiles, true) + tr.give.cash;
-    const loss = valueFor(tr.get.tiles, false) + tr.get.cash;
-    if (me.cash - tr.get.cash < 100000) return { type: 'tradeDecline' };
-    return { type: gain >= loss * 1.2 ? 'tradeAccept' : 'tradeDecline' };
-  }
-
   const ENGINE = {
-    createGame, apply, tick, botAction, botTradeResponse, computeRent, netWorth, liquidationValue, sellValue, tileValue,
+    createGame, apply, tick, botAction, computeRent, netWorth, liquidationValue, sellValue, tileValue,
     teleportTargets, championshipTargets, canBuild, canBuyout, buyoutPrice, buyOptions, buildOptions, levelCost, stepCost, HOTEL,
     ownsGroup, countOwned, houseCost, isOwnable, alive, fmt, N,
   };

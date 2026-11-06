@@ -23,7 +23,6 @@
     hotelCostMult: 2,          // l'hôtel coûte 2 maisons
     maxHouses: 3,              // 3 maisons, puis l'hôtel (niveau 4)
     lockedHousesBeforeLap: 3,  // la 3e maison n'est disponible qu'après un passage par la Taverne
-    tradeTimeoutMs: 45000,     // délai de réponse à une proposition d'échange
     durationsMin: [10, 15, 20, 30],
     defaultDurationMin: 20,
     maxPlayers: 4,

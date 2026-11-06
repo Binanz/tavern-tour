@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css?v=3" />
+  <link rel="stylesheet" href="./style.css?v=4" />
 </head>
 <body>
   <header class="topbar">
@@ -84,6 +84,19 @@
           </div>
         </div>
         <ul class="seats" id="seats"></ul>
+        <section class="lobby-profile" aria-labelledby="lobbyProfileTitle">
+          <h3 id="lobbyProfileTitle">Votre profil pour cette partie</h3>
+          <label class="field">
+            <span>Pseudo</span>
+            <input id="lobbyNameInput" maxlength="16" autocomplete="off" />
+          </label>
+          <span class="profile-label">Icône</span>
+          <div class="token-picker" id="lobbyTokenPicker" role="radiogroup" aria-label="Choix de l’icône"></div>
+          <div class="lobby-profile-actions">
+            <button class="btn small" id="btnSaveLobbyProfile">Mettre à jour</button>
+            <span class="muted" id="lobbyProfileHint" aria-live="polite"></span>
+          </div>
+        </section>
         <div class="lobby-options" id="lobbyOptions">
           <label class="field inline">
             <span>Durée</span>
@@ -129,7 +142,7 @@
     <aside class="side">
       <div class="players" id="players"></div>
       <div class="log-panel">
-        <div class="log-head">Chronique de la taverne</div>
+        <div class="log-head">Journal de Bob</div>
         <div class="log" id="log"></div>
       </div>
     </aside>
@@ -143,10 +156,10 @@
   <div class="fx-layer" id="fx" aria-hidden="true"></div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="./config.js?v=3"></script>
-  <script src="./engine.js?v=3"></script>
-  <script src="./net.js?v=3"></script>
-  <script src="./app.js?v=3"></script>
+  <script src="./config.js?v=4"></script>
+  <script src="./engine.js?v=4"></script>
+  <script src="./net.js?v=4"></script>
+  <script src="./app.js?v=4"></script>
 <script data-pplx-inline-edit>
 (function () {
   if (window === window.top) return;

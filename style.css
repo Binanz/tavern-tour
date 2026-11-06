@@ -157,6 +157,14 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 .seat .tag { margin-left: auto; font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.1em; color: var(--cream-dim); }
 .seat.empty { opacity: 0.55; border-style: dashed; }
 .seat.me { border-color: var(--gold); }
+.lobby-profile { margin: 0 0 20px; padding: 14px; border: 1px solid rgba(217, 179, 90, 0.25); border-radius: 10px; background: rgba(0, 0, 0, 0.2); }
+.lobby-profile h3 { margin-bottom: 12px; color: var(--gold-2); font-size: 16px; }
+.lobby-profile .token-picker { grid-template-columns: repeat(8, minmax(0, 1fr)); margin: 8px 0 12px; }
+.lobby-profile .token-btn { font-size: 22px; }
+.token-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.profile-label { display: block; color: var(--cream-dim); font-size: var(--text-sm); }
+.lobby-profile-actions { display: flex; align-items: center; gap: 12px; }
+.lobby-profile-actions .muted { font-size: var(--text-xs); }
 .lobby-options { display: flex; gap: 24px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: var(--text-sm); color: var(--cream-dim); cursor: pointer; }
 .check input { accent-color: var(--gold); width: 16px; height: 16px; }
@@ -167,10 +175,11 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 
 /* ---------- Écran de jeu ---------- */
 .game {
-  display: grid; grid-template-columns: 1fr var(--side-w); gap: 16px;
+  display: grid; grid-template-columns: var(--side-w) minmax(0, 1fr); gap: 16px;
   height: calc(100vh - var(--topbar-h)); padding: 12px 16px; overflow: hidden;
 }
-.board-wrap { display: grid; place-items: center; min-width: 0; min-height: 0; }
+.board-wrap { grid-column: 2; grid-row: 1; display: grid; place-items: center; min-width: 0; min-height: 0; }
+.side { grid-column: 1; grid-row: 1; }
 .board {
   --size: min(calc(100vh - var(--topbar-h) - 24px), calc(100vw - var(--side-w) - 48px));
   width: var(--size); height: var(--size);
@@ -300,8 +309,6 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 .lvl .lv-houses i.h { width: 1.6em; background: #c9302c; border-color: #4d0d08; }
 .lvl:disabled { opacity: 0.45; cursor: not-allowed; }
 .lvl.locked .lv-rent { color: #ffb3a7; }
-.btn.trade-btn { font-size: 0.9em; padding: 0.5em 1.1em; }
-.trade-wait { font-size: 1.1em; color: var(--cream-dim); }
 
 /* mini-carte propriété dans le centre */
 .offer-card {
@@ -369,9 +376,9 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 .player-card .chip i { position: absolute; inset: 0; display: block; font-size: 7px; line-height: 8px; text-align: center; color: #fff; font-style: normal; font-weight: 700; }
 
 .log-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; border-radius: 12px; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(217, 179, 90, 0.25); overflow: hidden; }
-.log-head { padding: 8px 12px; font-family: var(--font-display); font-size: var(--text-sm); color: var(--gold); border-bottom: 1px solid rgba(217, 179, 90, 0.2); letter-spacing: 0.05em; }
-.log { flex: 1; overflow-y: auto; padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; font-size: var(--text-sm); line-height: 1.35; scrollbar-width: thin; scrollbar-color: var(--gold-dim) transparent; }
-.log .l { color: var(--cream-dim); padding: 2px 0; }
+.log-head { padding: 10px 12px; font-family: var(--font-display); font-size: var(--text-base); color: var(--gold); border-bottom: 1px solid rgba(217, 179, 90, 0.2); letter-spacing: 0.05em; }
+.log { flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: var(--text-base); line-height: 1.45; scrollbar-width: thin; scrollbar-color: var(--gold-dim) transparent; }
+.log .l { color: var(--cream-dim); padding: 3px 0; }
 .log .l.turn { color: var(--gold); margin-top: 4px; font-weight: 700; }
 .log .l.ok { color: #9ee29c; } .log .l.warn { color: #ff9f93; } .log .l.card { color: #e6c7ff; } .log .l.rent { color: var(--cream); }
 
@@ -404,21 +411,12 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 .ranking .nm { font-weight: 700; }
 .ranking .wt { font-family: var(--font-display); font-weight: 700; color: var(--gold-2); font-variant-numeric: tabular-nums; }
 .ranking small { display: block; font-weight: 400; color: var(--cream-dim); font-size: var(--text-xs); }
-.trade-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 12px 0; }
-.trade-col { background: rgba(0, 0, 0, 0.3); border: 1px solid rgba(217, 179, 90, 0.25); border-radius: 10px; padding: 10px; }
-.trade-col h4 { font-size: var(--text-sm); color: var(--gold); margin-bottom: 8px; }
 .tchips { display: flex; flex-direction: column; gap: 5px; max-height: 220px; overflow: auto; scrollbar-width: thin; }
 .tchip { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; border: 1px solid transparent; background: rgba(255, 255, 255, 0.04); color: var(--cream); font: inherit; font-size: var(--text-sm); cursor: pointer; text-align: left; }
 .tchip i { width: 10px; height: 18px; border-radius: 2px; background: var(--g); flex: 0 0 auto; }
 .tchip small { margin-left: auto; color: var(--cream-dim); font-variant-numeric: tabular-nums; }
 .tchip[aria-pressed="true"] { border-color: var(--gold-2); background: rgba(217, 179, 90, 0.2); }
 .tchip:hover { border-color: var(--gold-dim); }
-.trade-cash { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: var(--text-sm); color: var(--cream-dim); }
-.trade-cash input { width: 100%; padding: 6px 8px; border-radius: 7px; border: 1px solid var(--gold-dim); background: rgba(0, 0, 0, 0.4); color: var(--cream); font: inherit; }
-.trade-partners { display: flex; gap: 8px; flex-wrap: wrap; }
-.trade-partners .btn[aria-pressed="true"] { border-color: var(--gold-2); background: rgba(217, 179, 90, 0.25); }
-.trade-summary { font-size: var(--text-sm); color: var(--cream); background: rgba(0, 0, 0, 0.3); border-radius: 8px; padding: 10px; margin-bottom: 12px; line-height: 1.5; }
-.trade-summary b { color: var(--gold-2); }
 .rules h3 { color: var(--gold); font-size: 15px; margin: 14px 0 4px; }
 .rules ul { margin: 0; padding-left: 18px; color: var(--cream-dim); line-height: 1.5; font-size: var(--text-sm); }
 .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 60; padding: 10px 18px; border-radius: 999px; background: #3a1d16; border: 1px solid #b25444; color: #ffd9d2; font-weight: 700; font-size: var(--text-sm); box-shadow: var(--shadow); animation: rise 200ms var(--ease); }
@@ -428,6 +426,8 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
   .home-grid { grid-template-columns: 1fr; }
   .modes { grid-template-columns: 1fr; }
   .game { grid-template-columns: 1fr; height: auto; overflow: visible; }
+  .board-wrap { grid-column: 1; grid-row: 1; }
+  .side { grid-column: 1; grid-row: 2; }
   .board { --size: min(calc(100vw - 32px), 900px); }
   .side { max-height: none; }
   .log-panel { min-height: 240px; max-height: 320px; }
@@ -439,7 +439,6 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
   .seats { grid-template-columns: 1fr; }
   .board { padding: 4px; border-width: 2px; font-size: calc(var(--size) / 72); }
   .center-title { font-size: 2.4em; }
-  .trade-grid { grid-template-columns: 1fr; }
   .turn-overlay .to-inner { font-size: 2.6em; }
   .player-card { grid-template-columns: 36px 1fr auto; }
 }

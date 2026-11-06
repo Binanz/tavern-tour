@@ -89,6 +89,7 @@
         conn.on('error', (e) => this.h.onError && this.h.onError(friendlyError(e), e));
       });
       peer.on('error', (err) => this.h.onError && this.h.onError(friendlyError(err), err));
+      peer.on('disconnected', () => { try { peer.reconnect(); } catch (e) { /* ignore */ } });
     }
 
     sendTo(id, msg) {
