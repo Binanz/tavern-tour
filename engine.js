@@ -39,7 +39,7 @@
 
   function createGame(playerDefs, opts, rng, now) {
     rng = rng || Math.random;
-    now = now || Date.now();
+    now = now == null ? Date.now() : now;
     opts = opts || {};
     const durationMs = (opts.durationMin || RULES.defaultDurationMin) * 60 * 1000;
     const players = playerDefs.slice(0, RULES.maxPlayers).map((p, i) => ({
@@ -49,6 +49,7 @@
       isBot: !!p.isBot,
       peerId: p.peerId || null,
       connected: p.isBot ? true : (p.connected !== false),
+      inventory: [], insurance: 0, buildDiscount: 0, rerollReady: false, movementAdjust: 0,
       cash: RULES.startCash,
       pos: 0,
       inJail: false,
@@ -81,8 +82,19 @@
       ranking: null,
       turnCount: 0,
     };
+    state.powers = opts.powers ? { rareSeen: [] } : null;
+    state.anomaly = null;
+    if (opts.anomaly && opts.anomaly !== 'none') {
+      const ids = Object.keys(CFG.ANOMALIES);
+      const id = opts.anomaly === 'random' ? ids[Math.floor(rng() * ids.length)] : opts.anomaly;
+      if (!CFG.ANOMALIES[id]) throw new Error('Anomalie inconnue.');
+      state.anomaly = { id, randomState: Math.floor(rng() * 4294967296) || 1, cursedTiles: [] };
+      if (id === 'cursed') state.anomaly.cursedTiles = shuffle(BOARD.map((b, i) => b.type === 'property' ? i : -1).filter(i => i >= 0), rng).slice(0, 3);
+      log(state, 'Anomalie — ' + CFG.ANOMALIES[id].name + ' : ' + CFG.ANOMALIES[id].description, 'info');
+    }
     log(state, 'Chaque joueur lance les dés pour déterminer l’ordre de passage.');
     log(state, `Festival de la taverne : ${state.festivalTiles.map((i) => BOARD[i].name).join(', ')} ont leur loyer doublé jusqu’à la fin de la partie.`, 'ok');
+    if (state.powers) log(state, 'Bonus de la Taverne : à chaque passage, choisissez le salaire ou un pouvoir. Deux pouvoirs en réserve, un utilisé par tour ; légendaires uniques dès leur apparition.');
     return state;
   }
 
@@ -116,9 +128,12 @@
   function tileValue(state, i) {
     const t = state.tiles[i];
     if (!t || t.owner === null) return 0;
-    let v = BOARD[i].price;
+    let v = landPrice(state, i);
     if (BOARD[i].type === 'property') v += levelCost(i, 0, t.houses);
     return v;
+  }
+  function landPrice(state, i) {
+    return Math.round(BOARD[i].price * (state.anomaly && state.anomaly.cursedTiles.includes(i) ? 0.75 : 1));
   }
   function buyoutPrice(state, i) { return tileValue(state, i) * RULES.buyoutMult; }
   function canBuyout(state, pIdx, i) {
@@ -131,7 +146,7 @@
     if (b.type !== 'property') return [{ houses: 0, cost: b.price, locked: false, affordable: p.cash >= b.price }];
     const out = [];
     for (let h = 1; h <= RULES.maxHouses; h++) {
-      const cost = b.price + levelCost(i, 0, h);
+      const cost = landPrice(state, i) + levelCost(i, 0, h);
       const locked = h >= RULES.lockedHousesBeforeLap && p.laps < 1;
       out.push({ houses: h, cost, locked, affordable: p.cash >= cost });
     }
@@ -143,11 +158,11 @@
     if (b.type !== 'property' || t.owner !== pIdx || t.houses >= HOTEL) return [];
     const out = [];
     if (t.houses >= RULES.maxHouses) {
-      const cost = stepCost(i, HOTEL);
+      const cost = Math.max(0, stepCost(i, HOTEL) - (state.powers ? p.buildDiscount : 0));
       return [{ houses: HOTEL, cost, locked: false, affordable: p.cash >= cost }];
     }
     for (let h = t.houses + 1; h <= RULES.maxHouses; h++) {
-      const cost = levelCost(i, t.houses, h);
+      const cost = Math.max(0, levelCost(i, t.houses, h) - (state.powers ? p.buildDiscount : 0));
       out.push({ houses: h, cost, locked: h >= RULES.lockedHousesBeforeLap && p.laps < 1, affordable: p.cash >= cost });
     }
     return out;
@@ -180,6 +195,7 @@
       rent = RULES.stationRents[countOwned(state, owner, 'station') - 1];
     }
     if (state.festivalTiles && state.festivalTiles.includes(i)) rent *= 2;
+    if (state.anomaly && state.anomaly.cursedTiles.includes(i)) rent *= 2;
     return rent;
   }
   function canBuild(state, pIdx, i) {
@@ -260,17 +276,29 @@
       if (steps === 0) steps = N;
       if (!opts.backward && to <= from) {
         const salary = RULES.salary * (to === 0 ? 2 : 1);
-        p.cash += salary;
         p.laps++;
-        const startStep = (N - from) % N || N;
-        ev(state, { type: 'salary', player: pIdx, amount: salary, atStep: startStep });
-        log(state, to === 0
-          ? `${p.name} tombe sur la Taverne et reçoit ${fmt(salary)} (gain doublé).`
-          : `${p.name} passe par la Taverne et reçoit ${fmt(salary)}.`, 'ok');
+        if (state.powers) {
+          if (!state.turn.tavernRewardUsed) {
+            state.turn.tavernRewardUsed = true;
+            state.turn.tavernChoice = { salary, extra: to === 0 ? RULES.salary : 0, offers: offerPowers(state, rng || Math.random), diceSum: opts.diceSum };
+          }
+        } else {
+          p.cash += salary;
+          const startStep = (N - from) % N || N;
+          ev(state, { type: 'salary', player: pIdx, amount: salary, atStep: startStep });
+          log(state, to === 0
+            ? `${p.name} tombe sur la Taverne et reçoit ${fmt(salary)} (gain doublé).`
+            : `${p.name} passe par la Taverne et reçoit ${fmt(salary)}.`, 'ok');
+        }
       }
       ev(state, { type: 'move', player: pIdx, from, to, steps, backward: !!opts.backward });
     }
     p.pos = to;
+    if (state.turn.tavernChoice) {
+      state.turn.step = 'tavernChoice';
+      log(state, p.name + ' choisit sa récompense de Taverne.');
+      return;
+    }
     landOn(state, pIdx, opts.diceSum, rng);
   }
 
@@ -284,10 +312,10 @@
       case 'station':
       {
         if (t.owner === null) {
-          if (p.cash >= b.price) {
+          if (p.cash >= landPrice(state, i)) {
             state.turn.step = 'buy';
             state.turn.offer = i;
-            log(state, `${p.name} arrive sur ${b.name} (libre, ${fmt(b.price)}).`);
+            log(state, `${p.name} arrive sur ${b.name} (libre, ${fmt(landPrice(state, i))}).`);
           } else {
             log(state, `${p.name} arrive sur ${b.name} mais n’a pas de quoi l’acheter.`);
             finishStep(state);
@@ -304,7 +332,14 @@
         } else {
           const owner = state.players[t.owner];
           if (owner.bankrupt) { finishStep(state); break; }
-          const rent = computeRent(state, i, diceSum);
+          let rent = computeRent(state, i, diceSum);
+          if (state.powers && p.insurance > 0) {
+            const covered = Math.min(rent, p.insurance);
+            owner.cash += covered;
+            rent -= covered;
+            p.insurance = 0;
+            log(state, 'La banque couvre ' + fmt(covered) + ' du loyer de ' + p.name + '.', 'ok');
+          }
           log(state, `${p.name} tombe chez ${owner.name} (${b.name}) : loyer ${fmt(rent)}.`, 'rent');
           if (pay(state, pIdx, rent, t.owner, `Loyer ${b.name}`)) {
             if (canBuyout(state, pIdx, i)) {
@@ -427,6 +462,52 @@
     }
   }
 
+  function offerPowers(state, rng) {
+    const commons = Object.keys(CFG.POWERS).filter(id => !CFG.POWERS[id].rare);
+    const first = commons[Math.floor(rng() * commons.length)];
+    const rares = Object.keys(CFG.POWERS).filter(id => CFG.POWERS[id].rare && !state.powers.rareSeen.includes(id));
+    if (rares.length && rng() < CFG.POWER_RULES.legendaryChance) {
+      const rare = rares[Math.floor(rng() * rares.length)];
+      state.powers.rareSeen.push(rare); // Retiré dès l’offre, même si elle est refusée.
+      log(state, CFG.POWERS[rare].name + " apparaît : cet exemplaire légendaire ne sera plus proposé de la partie.", "warn");
+      return [first, rare];
+    }
+    const rest = commons.filter(id => id !== first);
+    return [first, rest[Math.floor(rng() * rest.length)]];
+  }
+
+  function powerTargets(state, pIdx, id) {
+    return state.tiles.map((tile, i) => {
+      if (!tile || BOARD[i].type !== 'property') return -1;
+      if (id === 'annihilation' && tile.owner !== null && tile.owner !== pIdx && !state.players[tile.owner].bankrupt) return i;
+      if (id === 'goldenGift' && tile.owner === pIdx && tile.houses < HOTEL) return i;
+      return -1;
+    }).filter(i => i >= 0);
+  }
+
+  function previewOrResolve(state, pIdx, dice, rng) {
+    if (state.powers && state.players[pIdx].rerollReady) {
+      state.turn.pendingDice = dice;
+      state.turn.step = 'rerollChoice';
+      return;
+    }
+    resolveDice(state, pIdx, dice, rng);
+  }
+
+  function resolveDice(state, pIdx, d, rng) {
+    const t = state.turn, p = state.players[pIdx];
+    t.dice = d;
+    t.rolledThisTurn = true;
+    t.isDouble = d[0] === d[1];
+    if (t.isDouble) t.doubles++;
+    ev(state, { type: 'dice', player: pIdx, dice: d });
+    log(state, p.name + ' lance ' + d.join(' + ') + (t.isDouble ? ' (double).' : '.'));
+    if (t.doubles >= 3) { sendToJail(state, pIdx); return; }
+    const steps = d[0] + d[1] + (state.powers ? p.movementAdjust : 0);
+    p.movementAdjust = 0;
+    moveTo(state, pIdx, (p.pos + steps) % N, { diceSum: d[0] + d[1] }, rng);
+  }
+
   function rollDice(rng) {
     return [1 + Math.floor(rng() * 6), 1 + Math.floor(rng() * 6)];
   }
@@ -478,6 +559,15 @@
       orderIndex = (orderIndex + 1) % state.turnOrder.length;
     } while (state.players[state.turnOrder[orderIndex]].bankrupt);
     const i = state.turnOrder[orderIndex];
+    if (orderIndex <= orderPos && state.anomaly && state.anomaly.id === 'festival') {
+      const anomaly = state.anomaly;
+      const festivalRng = () => {
+        anomaly.randomState = (Math.imul(anomaly.randomState, 1664525) + 1013904223) >>> 0;
+        return anomaly.randomState / 4294967296;
+      };
+      state.festivalTiles = drawFestivalTiles(festivalRng);
+      log(state, 'Le Festival se déplace : ' + state.festivalTiles.map(tile => BOARD[tile].name).join(', '), 'ok');
+    }
     state.current = i;
     state.turnCount++;
     state.turn = newTurn();
@@ -738,18 +828,79 @@
       case 'roll': {
         if (t.step !== 'roll') return ERR('Impossible de lancer les dés maintenant.');
         const d = rollDice(rng);
-        t.dice = d;
-        t.rolledThisTurn = true;
-        t.isDouble = d[0] === d[1];
-        if (t.isDouble) t.doubles++;
-        ev(state, { type: 'dice', player: pIdx, dice: d });
-        log(state, `${p.name} lance ${d[0]} + ${d[1]}${t.isDouble ? ' (double)' : ''}.`);
-        if (t.doubles >= 3) {
-          log(state, `Trois doubles ! ${p.name} est envoyé sur l’Île perdue.`, 'warn');
-          sendToJail(state, pIdx);
+        if (state.anomaly && state.anomaly.id === 'destiny') {
+          t.rollChoices = [...d, 1 + Math.floor(rng() * 6)];
+          t.step = 'diceChoice';
+          log(state, p.name + ' choisit deux dés parmi ' + t.rollChoices.join(', ') + '.');
           return OK;
         }
-        moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
+        previewOrResolve(state, pIdx, d, rng);
+        return OK;
+      }
+      case 'chooseDice': {
+        const indices = action.indices;
+        if (t.step !== 'diceChoice' || !Array.isArray(indices) || indices.length !== 2 || indices[0] === indices[1] || indices.some(i => !Number.isInteger(i) || i < 0 || i > 2)) return ERR('Choisissez deux dés différents.');
+        const d = indices.map(i => t.rollChoices[i]);
+        t.rollChoices = null;
+        previewOrResolve(state, pIdx, d, rng);
+        return OK;
+      }
+      case 'chooseTavern': {
+        if (!state.powers || t.step !== 'tavernChoice' || !t.tavernChoice) return ERR('Aucune récompense à choisir.');
+        const choice = t.tavernChoice;
+        if (action.reward !== 'cash' && (!choice.offers.includes(action.reward) || p.inventory.length >= CFG.POWER_RULES.maxInventory)) return ERR('Bonus indisponible ou réserve pleine.');
+        t.tavernChoice = null;
+        if (action.reward === 'cash') {
+          p.cash += choice.salary;
+          log(state, p.name + ' choisit ' + fmt(choice.salary) + ' or.', 'ok');
+        } else {
+          p.cash += choice.extra;
+          p.inventory.push(action.reward);
+          log(state, p.name + ' récupère ' + CFG.POWERS[action.reward].name + (CFG.POWERS[action.reward].rare ? ' — LÉGENDAIRE UNIQUE !' : '.') , 'ok');
+        }
+        landOn(state, pIdx, choice.diceSum, rng);
+        return OK;
+      }
+      case 'usePower': {
+        if (!state.powers || t.step !== 'roll' || t.powerUsed) return ERR('Un pouvoir maximum par tour, avant un lancer.');
+        const index = action.index;
+        if (!Number.isInteger(index) || index < 0 || index >= p.inventory.length) return ERR('Pouvoir introuvable.');
+        const id = p.inventory[index];
+        const targets = powerTargets(state, pIdx, id);
+        if (id === 'annihilation' || id === 'goldenGift') {
+          if (!targets.includes(action.tile)) return ERR('Choisissez une propriété valide.');
+        }
+        if ((id === 'shield' || id === 'rentSkip') && p.insurance > 0) return ERR('Une protection est déjà active.');
+        if (id === 'permit' && p.buildDiscount > 0) return ERR('Un permis est déjà actif.');
+        if (id === 'reroll' && p.rerollReady) return ERR('Une seconde chance est déjà active.');
+        if (id === 'step' && ![-1, 1].includes(action.delta)) return ERR('Choisissez +1 ou −1.');
+        if (id === 'shield') p.insurance = 200000;
+        if (id === 'rentSkip') p.insurance = Number.MAX_SAFE_INTEGER;
+        if (id === 'reroll') p.rerollReady = true;
+        if (id === 'permit') p.buildDiscount = 150000;
+        if (id === 'step') p.movementAdjust = action.delta;
+        if (id === 'annihilation') {
+          state.tiles[action.tile].owner = null;
+          state.tiles[action.tile].houses = 0;
+          if (state.championship && state.championship.tile === action.tile) state.championship = null;
+        }
+        if (id === 'goldenGift') state.tiles[action.tile].houses = HOTEL;
+        p.inventory.splice(index, 1);
+        t.powerUsed = true;
+        log(state, p.name + ' utilise ' + CFG.POWERS[id].name + (['annihilation', 'goldenGift'].includes(id) ? ' sur ' + BOARD[action.tile].name : '') + '.', 'warn');
+        return OK;
+      }
+      case 'keepDice':
+      case 'rerollDice': {
+        if (t.step !== 'rerollChoice' || !t.pendingDice) return ERR('Aucun lancer à confirmer.');
+        const d = action.type === 'rerollDice' ? rollDice(rng) : t.pendingDice;
+        t.pendingDice = null;
+        p.rerollReady = false;
+        // En Dé du destin, une relance redonne un choix de trois dés.
+        if (action.type === 'rerollDice' && state.anomaly && state.anomaly.id === 'destiny') {
+          t.rollChoices = [...d, 1 + Math.floor(rng() * 6)];
+          t.step = 'diceChoice';
+        } else resolveDice(state, pIdx, d, rng);
         return OK;
       }
       case 'jailPay': {
@@ -829,6 +980,7 @@
         if (!opt.affordable) return ERR('Pas assez d’or.');
         const before = state.tiles[i].houses;
         p.cash -= opt.cost;
+        if (state.powers) p.buildDiscount = 0;
         state.tiles[i].houses = target;
         ev(state, { type: 'build', player: pIdx, tile: i, houses: target });
         log(state, `${p.name} améliore ${BOARD[i].name} : ${target === HOTEL ? 'Serviteur doré' : `Taverne ${target}`} (${fmt(opt.cost)}).`, 'ok');
@@ -931,7 +1083,8 @@
   }
 
   // Chrono : à appeler régulièrement côté hôte.
-  function tick(state, now) {
+  function tick(state, now, rng) {
+    rng = rng || Math.random;
     now = now == null ? Date.now() : now;
     if (state.phase !== 'playing' || state.ordering) return false;
     refreshClock(state, now);
@@ -942,7 +1095,9 @@
     }
     if (state.turnEndsAt != null && now >= state.turnEndsAt) {
       state.events = [];
-      if (state.auction) {
+      if (['diceChoice', 'tavernChoice', 'rerollChoice'].includes(state.turn.step)) {
+        apply(state, state.current, state.turn.step === 'tavernChoice' ? { type: 'chooseTavern', reward: 'cash' } : botAction(state, state.current), rng, now);
+      } else if (state.auction) {
         log(state, `${state.players[state.current].name} n’a pas enchéri à temps : il passe.`, 'warn');
         auctionAction(state, state.current, { type: 'auctionPass' }, now);
       } else if (state.turn.step === 'debt') {
@@ -963,7 +1118,7 @@
             }
           });
           if (tile < 0) { bankrupt(state, pIdx, now); break; }
-          apply(state, pIdx, { type: 'sell', tile }, Math.random, now);
+          apply(state, pIdx, { type: 'sell', tile }, rng, now);
         }
         if (state.phase === 'playing' && !state.auction) nextTurn(state, now);
       } else {
@@ -991,7 +1146,27 @@
       }
       return { type: 'auctionPass' };
     }
+    if (state.powers && t.step === 'roll' && !t.powerUsed) {
+      for (let index = 0; index < p.inventory.length; index++) {
+        const id = p.inventory[index];
+        if ((id === 'shield' || id === 'rentSkip') && !p.insurance) return { type: 'usePower', index };
+        if (id === 'reroll' && !p.rerollReady) return { type: 'usePower', index };
+        if (id === 'permit' && !p.buildDiscount) return { type: 'usePower', index };
+        if (id === 'step') return { type: 'usePower', index, delta: 1 };
+        const targets = powerTargets(state, pIdx, id);
+        if (targets.length) return { type: 'usePower', index, tile: targets.sort((a,b) => tileValue(state,b) - tileValue(state,a))[0] };
+      }
+    }
     switch (t.step) {
+      case 'tavernChoice': {
+        const rare = t.tavernChoice.offers.find(id => CFG.POWERS[id].rare);
+        return { type: 'chooseTavern', reward: p.inventory.length < CFG.POWER_RULES.maxInventory && (rare || p.cash > 500000) ? rare || t.tavernChoice.offers[0] : 'cash' };
+      }
+      case 'rerollChoice': return { type: t.pendingDice[0] + t.pendingDice[1] < 6 ? 'rerollDice' : 'keepDice' };
+      case 'diceChoice': {
+        const indices = [0, 1, 2].sort((a, b) => t.rollChoices[b] - t.rollChoices[a]).slice(0, 2);
+        return { type: 'chooseDice', indices };
+      }
       case 'roll': return { type: 'roll' };
       case 'jail':
         if (p.jailCards > 0) return { type: 'jailCard' };
@@ -1067,7 +1242,7 @@
   }
 
   const ENGINE = {
-    changeController, readClock, refreshClock,
+    changeController, readClock, refreshClock, landPrice, powerTargets,
     createGame, apply, tick, botAction, computeRent, netWorth, liquidationValue, sellValue, tileValue,
     teleportTargets, championshipTargets, canBuild, canBuyout, buyoutPrice, buyOptions, buildOptions, levelCost, stepCost, HOTEL,
     ownsGroup, countOwned, houseCost, isOwnable, alive, fmt, N,
