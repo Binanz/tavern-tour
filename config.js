@@ -20,9 +20,9 @@
     taxB: 100000,              // Taxe de luxe (case 38)
     sellRatio: 0.5,            // revente à la banque = 50 % de la valeur
     buyoutMult: 2,             // racheter la case d'un adversaire = 2x ce qu'il a investi
-    hotelCostMult: 2,          // l'hôtel coûte 2 maisons
-    maxHouses: 3,              // 3 maisons, puis l'hôtel (niveau 4)
-    lockedHousesBeforeLap: 3,  // la 3e maison n'est disponible qu'après un passage par la Taverne
+    hotelCostMult: 2,          // le serviteur doré coûte 2 niveaux de taverne
+    maxHouses: 4,              // 4 niveaux de taverne, puis le serviteur doré
+    lockedHousesBeforeLap: 3,  // les niveaux 3 et 4 sont disponibles après un passage par la Taverne
     durationsMin: [10, 15, 20, 30],
     defaultDurationMin: 20,
     maxPlayers: 4,
@@ -42,8 +42,8 @@
     dragon:    { label: 'Dragon',      color: '#3457c4', houseCost: 200000 },
   };
 
-  // Loyers : terrain nu, 1, 2, 3 maisons, hôtel — en multiples du prix.
-  const RENT_MULT = [0.2, 0.5, 1.0, 1.8, 3.0];
+  // Loyers : terrain nu, niveaux de taverne 1 à 4, serviteur doré.
+  const RENT_MULT = [0.2, 0.5, 1.0, 1.8, 3.0, 5.0];
   const rents = (price) => RENT_MULT.map((m) => Math.round((price * m) / 1000) * 1000);
 
   const P = (name, group, price, short) => ({ type: 'property', name, short: short || name, group, price, rents: rents(price) });
@@ -95,7 +95,7 @@
   ];
 
   // Cartes Chance. kinds : money, moveTo, moveBack, jail, jailCard, nearestStation,
-  // perHouse (payer par maison/hôtel), collectEach, payEach.
+  // perHouse (payer par niveau de taverne/serviteur doré), collectEach, payEach.
   const CARDS = [
     { text: 'Bob vous paie une tournée ! Recevez 150 000.', kind: 'money', amount: 150000 },
     { text: 'Vous gagnez la LAN HSBG. Recevez 100 000.', kind: 'money', amount: 100000 },
@@ -111,7 +111,7 @@
     { text: "Avancez jusqu’à l'accro de la gemme. Si vous passez par la Taverne, recevez 200 000.", kind: 'moveTo', tile: 21 },
     { text: 'Allez aux Championnats du monde.', kind: 'moveTo', tile: 20 },
     { text: 'Sortez gratuitement de l’Île perdue. Cette carte se conserve.', kind: 'jailCard' },
-    { text: 'Réparations de la taverne : payez 25 000 par maison et 100 000 par hôtel.', kind: 'perHouse', house: 25000, hotel: 100000 },
+    { text: 'Réparations de la taverne : payez 25 000 par niveau de taverne et 100 000 par serviteur doré.', kind: 'perHouse', house: 25000, hotel: 100000 },
     { text: 'C’est votre anniversaire ! Chaque joueur vous donne 50 000.', kind: 'collectEach', amount: 50000 },
     { text: 'Vous offrez la tournée : donnez 30 000 à chaque joueur.', kind: 'payEach', amount: 30000 },
     { text: 'Triple ! Recevez 75 000.', kind: 'money', amount: 75000 },

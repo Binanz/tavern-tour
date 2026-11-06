@@ -194,10 +194,13 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 }
 .tile {
   position: relative; background: linear-gradient(180deg, var(--parch), var(--parch-2)); color: var(--ink);
-  border-radius: 3px; overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
+  border-radius: 3px; overflow: visible; cursor: pointer; display: flex; flex-direction: column;
   box-shadow: inset 0 0 0 1px rgba(60, 35, 10, 0.35);
   transition: transform 160ms var(--ease), box-shadow 160ms var(--ease), filter 160ms;
 }
+.tile.owned { z-index: 4; }
+.tile.golden { background: linear-gradient(180deg, #fff4bd, #eac34c); box-shadow: inset 0 0 0 2px #b88a16, 0 0 8px rgba(243, 217, 139, 0.65); }
+.tile.golden .band { background: linear-gradient(180deg, #ffe77a, #c79418); }
 .tile:hover { z-index: 3; transform: scale(1.06); box-shadow: 0 8px 20px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(60, 35, 10, 0.35); }
 .tile .band { background: var(--g, #777); flex: 0 0 auto; }
 .tile .body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0.35em 0.3em; gap: 0.25em; min-height: 0; }
@@ -206,24 +209,21 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 .tile .ico { font-size: 1.9em; line-height: 1; }
 .tile .sub { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-soft); }
 .tile .price.rent { color: #8a1d14; font-weight: 800; }
-.tile .houses { display: flex; gap: 0.35em; justify-content: center; align-items: flex-end; min-height: 1.1em; margin-top: 0.3em; }
-.tile .house { position: relative; width: 1.05em; height: 0.85em; background: linear-gradient(180deg, #6fdc7f, #2f9a44); border: 1px solid #16401f; border-radius: 0.1em; box-shadow: 0 1px 0 rgba(0, 0, 0, 0.5); }
-.tile .house::before { content: ''; position: absolute; left: -0.12em; right: -0.12em; top: -0.5em; height: 0; border-left: 0.6em solid transparent; border-right: 0.6em solid transparent; border-bottom: 0.5em solid #16401f; }
-.tile .house::after { content: ''; position: absolute; left: 0.32em; bottom: 0; width: 0.35em; height: 0.4em; background: #16401f; border-radius: 0.05em 0.05em 0 0; }
-.tile .house.hotel { width: 2.6em; height: 1.1em; background: linear-gradient(180deg, #ff7b6b, #b3221a); border-color: #4d0d08; display: grid; place-items: center; color: #fff; font-weight: 900; font-size: 1em; }
-.tile .house.hotel::before { left: -0.1em; right: -0.1em; border-left: 1.35em solid transparent; border-right: 1.35em solid transparent; border-bottom: 0.45em solid #4d0d08; top: -0.45em; }
-.tile .house.hotel::after { display: none; }
-.tile .house.hotel b { font-size: 0.75em; line-height: 1; }
+.tile .houses { display: flex; justify-content: center; align-items: center; min-height: 1.1em; margin-top: 0.3em; }
+.tile .tavern-mark, .tile .golden-mark { display: inline-block; padding: 0.08em 0.35em; border-radius: 0.3em; font-weight: 900; line-height: 1.2; }
+.tile .tavern-mark { color: #fff; background: linear-gradient(180deg, #6fdc7f, #2f9a44); border: 1px solid #16401f; }
+.tile .golden-mark { color: #3a2800; background: linear-gradient(180deg, #ffe77a, #c79418); border: 1px solid #795600; }
 .tile .owner-pin { position: absolute; z-index: 4; display: flex; align-items: center; pointer-events: none; }
 .tile .owner-line { display: block; flex: 0 0 auto; background: var(--oc); opacity: 0.8; }
-.tile .owner-bubble { width: 2.1em; height: 2.1em; border: 1px solid var(--oc); border-radius: 50%; display: grid; place-items: center; background: #f3e7c9; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45); }
-.tile .owner-bubble span { font-size: 1.3em; line-height: 1; }
-.tile.side-bottom .owner-pin { top: 0.1em; left: 50%; transform: translateX(-50%); flex-direction: column-reverse; }
-.tile.side-bottom .owner-line, .tile.side-top .owner-line { width: 1px; height: 0.45em; }
-.tile.side-top .owner-pin { bottom: 0.1em; left: 50%; transform: translateX(-50%); flex-direction: column; }
-.tile.side-left .owner-pin { right: 0.1em; top: 50%; transform: translateY(-50%); flex-direction: row; }
-.tile.side-right .owner-pin { left: 0.1em; top: 50%; transform: translateY(-50%); flex-direction: row-reverse; }
-.tile.side-left .owner-line, .tile.side-right .owner-line { width: 0.45em; height: 1px; }
+.tile .owner-bubble { width: 3.2em; height: 3.2em; border: 2px solid var(--oc); border-radius: 50%; display: grid; place-items: center; background: #f3e7c9; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.55); }
+.tile .owner-bubble span { font-size: 1.8em; line-height: 1; }
+.tile .owner-line { opacity: 1; }
+.tile.side-bottom .owner-pin { top: -1.6em; left: 50%; transform: translateX(-50%); flex-direction: column-reverse; }
+.tile.side-bottom .owner-line, .tile.side-top .owner-line { width: 2px; height: 0.6em; }
+.tile.side-top .owner-pin { bottom: -1.6em; left: 50%; transform: translateX(-50%); flex-direction: column; }
+.tile.side-left .owner-pin { right: -1.6em; top: 50%; transform: translateY(-50%); flex-direction: row; }
+.tile.side-right .owner-pin { left: -1.6em; top: 50%; transform: translateY(-50%); flex-direction: row-reverse; }
+.tile.side-left .owner-line, .tile.side-right .owner-line { width: 0.6em; height: 2px; }
 .tile.land { animation: landflash 800ms var(--ease); z-index: 4; }
 @keyframes landflash { 0% { transform: scale(1); } 30% { transform: scale(1.14); box-shadow: 0 0 0 0.35em var(--gold-2), 0 0 2em var(--gold-2); } 100% { transform: scale(1); } }
 .tile.land.bad { animation-name: landbad; } .tile.land.good { animation-name: landgood; }
@@ -301,7 +301,7 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 .lvl .lv-rent { font-size: 0.75em; color: var(--cream-dim); }
 .lvl .lv-houses { display: flex; justify-content: center; gap: 0.2em; min-height: 0.8em; }
 .lvl .lv-houses i { width: 0.7em; height: 0.7em; background: #3fb455; border: 1px solid #16401f; border-radius: 0.1em; display: inline-block; }
-.lvl .lv-houses i.h { width: 1.6em; background: #c9302c; border-color: #4d0d08; }
+.lvl .lv-houses i.gold { width: 0.9em; height: 0.9em; background: #f3cf54; border-color: #8c6710; transform: rotate(45deg); }
 .lvl:disabled { opacity: 0.45; cursor: not-allowed; }
 .lvl.locked .lv-rent { color: #ffb3a7; }
 

@@ -21,8 +21,8 @@ function checkInvariants(state, ctx) {
   });
   state.tiles.forEach((t, i) => {
     if (!t) return;
-    if (t.houses < 0 || t.houses > E.HOTEL) throw new Error(`maisons invalides case ${i} (${ctx})`);
-    if (t.owner !== null && CFG.BOARD[i].type !== 'property' && t.houses !== 0) throw new Error(`maisons sur une gare (${ctx})`);
+    if (t.houses < 0 || t.houses > E.HOTEL) throw new Error(`niveau de taverne invalide case ${i} (${ctx})`);
+    if (t.owner !== null && CFG.BOARD[i].type !== 'property' && t.houses !== 0) throw new Error(`niveau sur une gare (${ctx})`);
   });
   if (!isFinite(total)) throw new Error('total NaN');
 }
@@ -77,6 +77,7 @@ console.log('étapes cumulées:', JSON.stringify(agg));
 (function unitTests() {
   const rng = mulberry32(42);
   const RULES = CFG.RULES;
+  if (CFG.BOARD.some((tile) => tile.type === 'property' && tile.rents.length !== E.HOTEL + 1)) throw new Error('chaque propriété doit avoir un loyer pour chaque niveau');
   const st = E.createGame([{ name: 'A' }, { name: 'B' }], { durationMin: 20 }, rng, 0);
   st.tiles[39].owner = 1; st.tiles[39].houses = E.HOTEL;
   st.tiles[37].owner = 1;
@@ -107,51 +108,57 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (E.computeRent(s2, 12, 9) !== 9 * RULES.utilityMult[0]) throw new Error('loyer service attendu');
   if (E.apply(s2, 1, { type: 'roll' }, rng, 0).ok) throw new Error('B ne doit pas pouvoir jouer');
 
-  // Achat à plusieurs niveaux : 3e maison verrouillée avant un tour de plateau
+  // Achat à plusieurs niveaux : Taverne 3 et 4 verrouillées avant un tour de plateau
   const s3 = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 0);
   s3.players[0].pos = 37; // 1+1 => 39 Kalecgos libre
   E.apply(s3, 0, { type: 'roll' }, () => 0.0, 0);
   if (s3.turn.step !== 'buy') throw new Error('achat attendu');
-  if (E.apply(s3, 0, { type: 'buy', houses: 3 }, rng, 0).ok) throw new Error('3 maisons devraient être verrouillées au premier tour');
+  if (E.apply(s3, 0, { type: 'buy', houses: 3 }, rng, 0).ok) throw new Error('Taverne 3 devrait être verrouillée au premier tour');
+  if (E.apply(s3, 0, { type: 'buy', houses: 4 }, rng, 0).ok) throw new Error('Taverne 4 devrait être verrouillée au premier tour');
   const hc = CFG.GROUPS.dragon.houseCost;
-  if (!E.apply(s3, 0, { type: 'buy', houses: 2 }, rng, 0).ok) throw new Error('achat avec 2 maisons refusé');
-  if (s3.players[0].cash !== 2000000 - 400000 - 2 * hc) throw new Error('prix achat 2 maisons incorrect: ' + s3.players[0].cash);
-  if (s3.tiles[39].houses !== 2) throw new Error('2 maisons attendues');
+  if (!E.apply(s3, 0, { type: 'buy', houses: 2 }, rng, 0).ok) throw new Error('achat avec 2 Tavernes refusé');
+  if (s3.players[0].cash !== 2000000 - 400000 - 2 * hc) throw new Error('prix achat 2 Tavernes incorrect: ' + s3.players[0].cash);
+  if (s3.tiles[39].houses !== 2) throw new Error('Taverne 2 attendue');
   if (E.tileValue(s3, 39) !== 400000 + 2 * hc) throw new Error('valeur case incorrecte');
-  // Rachat par B : loyer puis rachat 2x la valeur ; hôtel non rachetable
+  // Rachat par B : loyer puis rachat 2x la valeur ; Serviteur doré non rachetable
   s3.current = 1; s3.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
   s3.players[1].pos = 37; s3.players[1].cash = 3000000;
-  E.apply(s3, 1, { type: 'roll' }, () => 0.0, 0); // tombe sur Kalecgos (2 maisons)
+  E.apply(s3, 1, { type: 'roll' }, () => 0.0, 0); // tombe sur Kalecgos (Taverne 2)
   const rent = CFG.BOARD[39].rents[2];
-  if (s3.turn.lastPay.amount !== rent) throw new Error('loyer 2 maisons attendu: ' + JSON.stringify(s3.turn.lastPay));
+  if (s3.turn.lastPay.amount !== rent) throw new Error('loyer Taverne 2 attendu: ' + JSON.stringify(s3.turn.lastPay));
   if (s3.turn.step !== 'buyout') throw new Error('étape rachat attendue, step=' + s3.turn.step);
   const price = (400000 + 2 * hc) * RULES.buyoutMult;
   if (s3.turn.buyoutPrice !== price) throw new Error('prix de rachat incorrect');
   const cashA = s3.players[0].cash, cashB = s3.players[1].cash;
   if (!E.apply(s3, 1, { type: 'buyout' }, rng, 0).ok) throw new Error('rachat refusé');
-  if (s3.tiles[39].owner !== 1 || s3.tiles[39].houses !== 2) throw new Error('rachat : propriétaire/maisons incorrects');
+  if (s3.tiles[39].owner !== 1 || s3.tiles[39].houses !== 2) throw new Error('rachat : propriétaire/niveau incorrects');
   if (s3.players[0].cash !== cashA + price || s3.players[1].cash !== cashB - price) throw new Error('rachat : transfert incorrect');
-  // Construction : B retombe chez lui, 3e maison verrouillée (laps 0) ; après un tour, 3 puis hôtel
+  // Construction : niveaux 3 et 4 verrouillés avant un tour ; Serviteur doré après Taverne 4
   s3.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
   s3.players[1].pos = 37;
-  if (!E.buildOptions(s3, 1, 39)[0].locked || E.canBuild(s3, 1, 39)) throw new Error('3e maison verrouillée attendue avant un tour');
+  if (!E.buildOptions(s3, 1, 39).every((o) => o.locked) || E.canBuild(s3, 1, 39)) throw new Error('Tavernes 3 et 4 verrouillées avant un tour');
   s3.players[1].laps = 1;
   E.apply(s3, 1, { type: 'roll' }, () => 0.0, 0);
   if (s3.turn.step !== 'build') throw new Error('construction attendue, step=' + s3.turn.step);
-  if (!E.apply(s3, 1, { type: 'build', houses: 3 }, rng, 0).ok) throw new Error('3e maison refusée après un tour');
+  if (!E.apply(s3, 1, { type: 'build', houses: 3 }, rng, 0).ok) throw new Error('Taverne 3 refusée après un tour');
+  s3.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
+  s3.players[1].pos = 37;
+  E.apply(s3, 1, { type: 'roll' }, () => 0.0, 0);
+  if (!E.apply(s3, 1, { type: 'build', houses: 4 }, rng, 0).ok) throw new Error('Taverne 4 refusée après un tour');
+  if (s3.tiles[39].houses !== 4 || E.computeRent(s3, 39, 7) !== CFG.BOARD[39].rents[4]) throw new Error('niveau ou loyer Taverne 4 incorrect');
   s3.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
   s3.players[1].pos = 37;
   E.apply(s3, 1, { type: 'roll' }, () => 0.0, 0);
   const opts = E.buildOptions(s3, 1, 39);
-  if (opts.length !== 1 || opts[0].houses !== E.HOTEL || opts[0].cost !== hc * RULES.hotelCostMult) throw new Error('option hôtel attendue: ' + JSON.stringify(opts));
-  if (!E.apply(s3, 1, { type: 'build', houses: E.HOTEL }, rng, 0).ok) throw new Error('hôtel refusé');
-  if (E.canBuyout(s3, 0, 39)) throw new Error('un hôtel ne doit pas être rachetable');
-  if (E.computeRent(s3, 39, 7) !== CFG.BOARD[39].rents[E.HOTEL]) throw new Error('loyer hôtel attendu');
-  // Revente de l'hôtel = coût hôtel / 2
+  if (opts.length !== 1 || opts[0].houses !== E.HOTEL || opts[0].cost !== hc * RULES.hotelCostMult) throw new Error('option Serviteur doré attendue: ' + JSON.stringify(opts));
+  if (!E.apply(s3, 1, { type: 'build', houses: E.HOTEL }, rng, 0).ok) throw new Error('Serviteur doré refusé');
+  if (E.canBuyout(s3, 0, 39)) throw new Error('un Serviteur doré ne doit pas être rachetable');
+  if (E.computeRent(s3, 39, 7) !== CFG.BOARD[39].rents[E.HOTEL]) throw new Error('loyer Serviteur doré attendu');
+  // Revente du Serviteur doré : le niveau revient à Taverne 4.
   s3.current = 1; s3.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
   const before = s3.players[1].cash;
   if (!E.apply(s3, 1, { type: 'sell', tile: 39 }, rng, 0).ok) throw new Error('revente refusée');
-  if (s3.players[1].cash - before !== hc * RULES.hotelCostMult * RULES.sellRatio || s3.tiles[39].houses !== 3) throw new Error('revente hôtel incorrecte');
+  if (s3.players[1].cash - before !== hc * RULES.hotelCostMult * RULES.sellRatio || s3.tiles[39].houses !== 4) throw new Error('revente Serviteur doré incorrecte');
 
   // Tour du monde : toujours vers l'avant, salaire en passant par la Taverne
   const s4 = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 0);

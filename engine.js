@@ -90,10 +90,10 @@
   function houseCost(i) {
     return GROUPS[BOARD[i].group].houseCost;
   }
-  const HOTEL = RULES.maxHouses + 1; // niveau hôtel (4)
-  // Coût d'un niveau donné (la maison n° h, ou l'hôtel si h === HOTEL)
+  const HOTEL = RULES.maxHouses + 1; // niveau serviteur doré
+  // Le serviteur doré remplace le niveau de taverne suivant et coûte davantage.
   function stepCost(i, h) { return h === HOTEL ? houseCost(i) * RULES.hotelCostMult : houseCost(i); }
-  // Coût pour passer de fromH à toH maisons
+  // Coût cumulé des niveaux de taverne et du serviteur doré.
   function levelCost(i, fromH, toH) { let c = 0; for (let h = fromH + 1; h <= toH; h++) c += stepCost(i, h); return c; }
   function tileValue(state, i) {
     const t = state.tiles[i];
@@ -107,7 +107,7 @@
     const b = BOARD[i]; const t = state.tiles[i];
     return b.type === 'property' && t.owner !== null && t.owner !== pIdx && t.houses < HOTEL && !state.players[t.owner].bankrupt && state.players[pIdx].cash >= buyoutPrice(state, i);
   }
-  // Options d'achat d'une case libre : niveaux 0..maxHouses maisons d'un coup.
+  // Options d'achat d'une case libre : terrain nu ou niveaux de taverne 1..4.
   function buyOptions(state, pIdx, i) {
     const b = BOARD[i]; const p = state.players[pIdx];
     if (b.type !== 'property') return [{ houses: 0, cost: b.price, locked: false, affordable: p.cash >= b.price }];
@@ -557,7 +557,7 @@
         state.tiles[i].owner = pIdx;
         state.tiles[i].houses = h;
         ev(state, { type: 'buy', player: pIdx, tile: i, houses: h });
-        log(state, `${p.name} achète ${b.name}${h ? ` avec ${h} maison${h > 1 ? 's' : ''}` : ''} pour ${fmt(opt.cost)}.`, 'ok');
+        log(state, `${p.name} achète ${b.name}${h ? ` au niveau ${h === HOTEL ? 'Serviteur doré' : `Taverne ${h}`}` : ''} pour ${fmt(opt.cost)}.`, 'ok');
         if (b.type === 'property' && ownsGroup(state, pIdx, b.group)) log(state, `${p.name} contrôle tous les ${GROUPS[b.group].label}s : loyers doublés !`, 'ok');
         finishStep(state);
         return OK;
@@ -580,7 +580,7 @@
         p.cash -= opt.cost;
         state.tiles[i].houses = target;
         ev(state, { type: 'build', player: pIdx, tile: i, houses: target });
-        log(state, `${p.name} construit ${target === HOTEL ? 'un hôtel' : `${target - before} maison${target - before > 1 ? 's' : ''}`} sur ${BOARD[i].name} (${fmt(opt.cost)}).`, 'ok');
+        log(state, `${p.name} améliore ${BOARD[i].name} : ${target === HOTEL ? 'Serviteur doré' : `Taverne ${target}`} (${fmt(opt.cost)}).`, 'ok');
         finishStep(state);
         return OK;
       }
@@ -653,9 +653,9 @@
         const tile = state.tiles[i];
         const v = sellValue(state, i);
         if (BOARD[i].type === 'property' && tile.houses > 0) {
-          const wasHotel = tile.houses === HOTEL;
+          const wasGolden = tile.houses === HOTEL;
           tile.houses--;
-          log(state, `${p.name} revend ${wasHotel ? 'l’hôtel' : 'une maison'} sur ${BOARD[i].name} (+${fmt(v)}).`);
+          log(state, `${p.name} revend ${wasGolden ? 'le serviteur doré' : `Taverne ${tile.houses + 1}`} sur ${BOARD[i].name} (+${fmt(v)}).`);
         } else {
           tile.owner = null;
           tile.houses = 0;
@@ -760,7 +760,7 @@
       }
       case 'debt': {
         if (p.cash + liquidationValue(state, pIdx) < t.debt.amount) return { type: 'declareBankrupt' };
-        // vendre la moins chère d'abord (maisons sur la case la plus construite d'abord)
+        // Vendre les niveaux de taverne les moins chers en premier.
         let best = null, bestV = Infinity;
         for (let i = 0; i < N; i++) {
           const tl = state.tiles[i];
