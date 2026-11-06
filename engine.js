@@ -5,6 +5,7 @@
   const CFG = global.TT_CONFIG || (typeof require !== 'undefined' ? require('./config.js') : null);
   const { RULES, GROUPS, BOARD, CARDS, PLAYER_COLORS } = CFG;
   const N = BOARD.length;
+  const JAIL_TILE = BOARD.findIndex((tile) => tile.type === 'jail');
   const OWNABLE = new Set(['property', 'station']);
 
   const isOwnable = (i) => OWNABLE.has(BOARD[i].type);
@@ -219,8 +220,8 @@
   // Déplacements
   function sendToJail(state, pIdx) {
     const p = state.players[pIdx];
-    ev(state, { type: 'move', player: pIdx, from: p.pos, to: 10, teleport: true });
-    p.pos = 10;
+    ev(state, { type: 'move', player: pIdx, from: p.pos, to: JAIL_TILE, teleport: true });
+    p.pos = JAIL_TILE;
     p.inJail = true;
     p.jailTurns = 0;
     state.turn.isDouble = false; // pas de relance
@@ -229,7 +230,7 @@
     state.turn.step = 'done';
   }
 
-  function moveTo(state, pIdx, to, opts) {
+  function moveTo(state, pIdx, to, opts, rng) {
     opts = opts || {};
     const p = state.players[pIdx];
     const from = p.pos;
@@ -240,19 +241,22 @@
       let steps = forward > 0 ? (to - from + N) % N : (from - to + N) % N;
       if (steps === 0) steps = N;
       if (!opts.backward && to <= from) {
-        // on passe par la Taverne
-        p.cash += RULES.salary;
+        const salary = RULES.salary * (to === 0 ? 2 : 1);
+        p.cash += salary;
         p.laps++;
-        ev(state, { type: 'salary', player: pIdx, amount: RULES.salary });
-        log(state, `${p.name} passe par la Taverne et reçoit ${fmt(RULES.salary)}.`, 'ok');
+        const startStep = (N - from) % N || N;
+        ev(state, { type: 'salary', player: pIdx, amount: salary, atStep: startStep });
+        log(state, to === 0
+          ? `${p.name} tombe sur la Taverne et reçoit ${fmt(salary)} (gain doublé).`
+          : `${p.name} passe par la Taverne et reçoit ${fmt(salary)}.`, 'ok');
       }
       ev(state, { type: 'move', player: pIdx, from, to, steps, backward: !!opts.backward });
     }
     p.pos = to;
-    landOn(state, pIdx, opts.diceSum);
+    landOn(state, pIdx, opts.diceSum, rng);
   }
 
-  function landOn(state, pIdx, diceSum) {
+  function landOn(state, pIdx, diceSum, rng) {
     const p = state.players[pIdx];
     const i = p.pos;
     const b = BOARD[i];
@@ -300,7 +304,7 @@
         if (pay(state, pIdx, b.amount, null, b.name)) finishStep(state);
         break;
       case 'chance':
-        drawCard(state, pIdx);
+        drawCard(state, pIdx, rng);
         break;
       case 'jail':
         sendToJail(state, pIdx);
@@ -325,10 +329,11 @@
     }
   }
 
-  function drawCard(state, pIdx) {
+  function drawCard(state, pIdx, rng) {
+    rng = rng || Math.random;
     const p = state.players[pIdx];
     if (state.deckPos >= state.deck.length) {
-      state.deck = shuffle(state.deck, Math.random);
+      state.deck = shuffle(state.deck, rng);
       state.deckPos = 0;
     }
     const card = CARDS[state.deck[state.deckPos++]];
@@ -340,10 +345,10 @@
         else if (pay(state, pIdx, -card.amount, null, 'Carte Chance')) finishStep(state);
         break;
       case 'moveTo':
-        moveTo(state, pIdx, card.tile, {});
+        moveTo(state, pIdx, card.tile, {}, rng);
         break;
       case 'moveBack':
-        moveTo(state, pIdx, (p.pos - card.steps + N) % N, { backward: true });
+        moveTo(state, pIdx, (p.pos - card.steps + N) % N, { backward: true }, rng);
         break;
       case 'jail':
         sendToJail(state, pIdx);
@@ -358,7 +363,7 @@
           const j = (p.pos + k) % N;
           if (BOARD[j].type === 'station') { to = j; break; }
         }
-        moveTo(state, pIdx, to, {});
+        moveTo(state, pIdx, to, {}, rng);
         break;
       }
       case 'perHouse': {
@@ -579,6 +584,11 @@
     now = now == null ? Date.now() : now;
     state.events = [];
     if (state.phase !== 'playing') return ERR('La partie est terminée.');
+    if (!state.ordering && state.endsAt != null && now >= state.endsAt) {
+      state.events = [];
+      endGame(state, 'time');
+      return OK;
+    }
     const p = state.players[pIdx];
     const t = state.turn;
     if (p.bankrupt) return ERR('Joueur en faillite.');
@@ -646,7 +656,7 @@
           sendToJail(state, pIdx);
           return OK;
         }
-        moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] });
+        moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
         return OK;
       }
       case 'jailPay': {
@@ -677,13 +687,13 @@
           p.inJail = false;
           t.isDouble = false;
           log(state, `${p.name} fait un double (${d[0]}+${d[1]}) et s’échappe de l’Île perdue !`, 'ok');
-          moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] });
+          moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
         } else {
           p.jailTurns++;
           if (p.jailTurns >= RULES.jailMaxTurns) {
             p.inJail = false;
             log(state, `${p.name} lance ${d[0]}+${d[1]} : troisième essai, un bateau le récupère enfin.`);
-            moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] });
+            moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
           } else {
             log(state, `${p.name} lance ${d[0]}+${d[1]} : toujours naufragé (${p.jailTurns}/${RULES.jailMaxTurns}).`);
             t.step = 'done';
@@ -765,7 +775,7 @@
         if (p.cash < RULES.worldTourFee) return ERR('Pas assez d’or.');
         p.cash -= RULES.worldTourFee;
         log(state, `${p.name} paie ${fmt(RULES.worldTourFee)} et voyage vers ${BOARD[i].name}.`);
-        moveTo(state, pIdx, i, {});
+        moveTo(state, pIdx, i, {}, rng);
         return OK;
       }
       case 'skipTeleport': {

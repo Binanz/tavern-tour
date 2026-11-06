@@ -30,6 +30,7 @@
     hostLostTimer: null, hostLostShown: false,
     clientPeerId: null,
     pendingClaims: Object.create(null),
+    animating: false,
   };
   const LEVEL_LABELS = ['Sans taverne', 'Taverne 1', 'Taverne 2', 'Taverne 3', 'Taverne 4', 'Serviteur doré'];
 
@@ -595,7 +596,7 @@
   }
 
   function act(action) {
-    if (!app.state) return;
+    if (!app.state || app.animating) return;
     if (app.mode === 'client') app.net.sendHost({ type: 'action', action });
     else dispatch(app.myIdx, action, 'me');
   }
@@ -722,14 +723,21 @@
 
   function processEvents(s) {
     let delay = 0;
+    const pendingSalaries = [];
     for (const ev of s.events || []) {
       if (ev.type === 'dice') { animateDice(ev.dice); delay += 650; }
       if (ev.type === 'move') {
+        const moveStart = delay;
         setTimeout(() => enqueueMove(ev), delay);
-        delay += ev.teleport || ev.steps === undefined ? 450 : ev.steps * STEP_MS + 250;
+        const moveDuration = ev.teleport || ev.steps === undefined ? 450 : ev.steps * STEP_MS + 250;
+        pendingSalaries.splice(0).forEach((salary) => {
+          const at = ev.teleport || ev.steps === undefined ? moveDuration : Math.min(ev.steps, salary.atStep || ev.steps) * STEP_MS + 30;
+          setTimeout(() => { showMoneyDelta(salary.player, salary.amount); flashTile(0, 'good'); }, moveStart + at);
+        });
+        delay += moveDuration;
       }
       if (ev.type === 'card') { setTimeout(() => showChanceCard(ev.text), delay); delay += 2600; }
-      if (ev.type === 'salary') { const amt = ev.amount, pl = ev.player; setTimeout(() => { showMoneyDelta(pl, amt); flashTile(0, 'good'); }, Math.max(0, delay - 200)); }
+      if (ev.type === 'salary') pendingSalaries.push(ev);
       if (ev.type === 'pay') { const e2 = ev; setTimeout(() => { if (typeof e2.to === 'number' && s.players[e2.to]) flashTile(s.players[e2.from].pos, 'bad'); }, delay); }
       if (ev.type === 'buy' || ev.type === 'build') { const tl = ev.tile; setTimeout(() => flashTile(tl, 'good'), delay); }
       if (ev.type === 'buyout') { const tl = ev.tile; setTimeout(() => { flashTile(tl, 'good'); SFX.card(); }, delay); }
@@ -750,6 +758,7 @@
       at: Date.now(),
     };
     app.animDelay = processEvents(s);
+    app.animating = app.animDelay > 0;
     // variations d'or (hors salaire déjà affiché pendant le déplacement)
     if (app.prevCash && app.prevCash.length === s.players.length) {
       const salaryFor = {};
@@ -768,10 +777,15 @@
     // resynchronise les pions qui ne bougent pas
     s.players.forEach((p, i) => { if (!app.pawnBusy[i] && !app.pawnQueue[i].length && app.displayedPos[i] !== p.pos && !(s.events || []).some((e) => e.type === 'move' && e.player === i)) app.displayedPos[i] = p.pos; });
     positionAllPawns();
-    renderPlayers(); renderTiles(); renderLog(); renderTimer();
+    app.selectMode = null;
+    renderTimer();
     clearTimeout(app.actionTimer);
     renderActions(true);
-    app.actionTimer = setTimeout(() => renderActions(false), app.animDelay);
+    app.actionTimer = setTimeout(() => {
+      if (app.state !== s) return;
+      app.animating = false;
+      renderPlayers(); renderTiles(); renderLog(); renderActions(false);
+    }, app.animDelay);
     if (s.phase === 'ended' && !(s.events || []).some((e) => e.type === 'gameover')) showEnd();
   }
 
@@ -1025,7 +1039,7 @@
 
   // Interactions plateau
   function onTileClick(i) {
-    const s = app.state; if (!s) return;
+    const s = app.state; if (!s || app.animating) return;
     const me = app.myIdx; const myTurn = s.current === me && s.phase === 'playing';
     const b = BOARD[i]; const t = s.tiles[i];
     if (myTurn && app.selectMode === 'teleport' && E.teleportTargets(s, me).includes(i)) {

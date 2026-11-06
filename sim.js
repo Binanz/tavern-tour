@@ -147,14 +147,52 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   st.players[0].cash = 500000; st.players[0].pos = 30;
   const r = E.apply(st, 0, { type: 'roll' }, () => 0.0, 1000); // 1+1 => Taverne => salaire
   if (!r.ok) throw new Error(r.error);
-  if (st.players[0].cash !== 700000) throw new Error('salaire non reçu: ' + st.players[0].cash);
+  if (st.players[0].cash !== 900000 || !st.events.some((event) => event.type === 'salary' && event.amount === 2 * RULES.salary)) throw new Error('le passage avec arrivée sur la Taverne doit payer le salaire doublé');
   if (st.players[0].laps !== 1) throw new Error('tour de plateau non compté');
   if (st.turn.step !== 'roll') throw new Error('double devrait permettre de rejouer: ' + st.turn.step);
-  const nearestServant = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
-  nearestServant.deck = [8];
-  nearestServant.players[0].pos = 10;
-  E.apply(nearestServant, 0, { type: 'roll' }, () => 0, 0);
-  if (nearestServant.players[0].pos !== 14 || nearestServant.turn.step !== 'buy') throw new Error('la carte du serviteur neutre le plus proche doit avancer sur la prochaine case de serviteur neutre');
+  const passStart = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 1000);
+  passStart.players[0].pos = 30;
+  E.apply(passStart, 0, { type: 'roll' }, (() => { const values = [0, 0.2]; return () => values.shift(); })(), 2000);
+  if (passStart.players[0].pos !== 1 || passStart.players[0].cash !== RULES.startCash + RULES.salary || !passStart.events.some((event) => event.type === 'salary' && event.amount === RULES.salary)) throw new Error('un passage sans arrivée sur la Taverne doit payer le salaire normal');
+
+  const cardKinds = new Set(CFG.CARDS.map((card) => card.kind));
+  if (['money', 'moveTo', 'moveBack', 'jail', 'nearestStation', 'jailCard', 'perHouse', 'collectEach', 'payEach'].some((kind) => !cardKinds.has(kind))) throw new Error('une catégorie de carte Chance n’a aucun test');
+  const playChanceCard = (cardIndex, players, configure) => {
+    const game = createStartedGame(players || [{ name: 'A' }, { name: 'B' }], {}, 1000);
+    game.deck = [cardIndex]; game.deckPos = 0;
+    game.players[0].pos = 9;
+    if (configure) configure(game);
+    const dice = [0, 0.2];
+    const result = E.apply(game, 0, { type: 'roll' }, () => dice.shift(), 2000);
+    if (!result.ok || !game.events.some((event) => event.type === 'card')) throw new Error(`carte Chance ${cardIndex} non résolue`);
+    return game;
+  };
+  [0, 1, 2, 3, 4, 17].forEach((index) => {
+    const card = CFG.CARDS[index];
+    const game = playChanceCard(index);
+    if (game.players[0].cash !== RULES.startCash + card.amount) throw new Error(`effet monétaire incorrect carte Chance ${index}`);
+  });
+  const toStart = playChanceCard(5);
+  if (toStart.players[0].pos !== 0 || toStart.players[0].cash !== RULES.startCash + 2 * RULES.salary) throw new Error('la carte Rafraîchissement doit donner le gain doublé en arrivant à la Taverne');
+  const cardJail = playChanceCard(6);
+  if (cardJail.players[0].pos !== 8 || !cardJail.players[0].inJail) throw new Error('la carte Naufrage doit envoyer sur l’Île perdue');
+  const moveBack = playChanceCard(7);
+  if (moveBack.players[0].pos !== 9) throw new Error('la carte de recul doit reculer de 3 cases');
+  const nearestStation = playChanceCard(8);
+  if (nearestStation.players[0].pos !== 14 || nearestStation.turn.step !== 'buy') throw new Error('la carte de serviteur neutre doit avancer sur la gare la plus proche');
+  if (playChanceCard(9).players[0].pos !== 31) throw new Error('la carte Kalecgos ne vise pas la bonne case');
+  const acrossStart = playChanceCard(10);
+  if (acrossStart.players[0].pos !== 5 || acrossStart.players[0].cash !== RULES.startCash + RULES.salary) throw new Error('la carte Éclaireur doit créditer le passage par la Taverne');
+  if (playChanceCard(11).players[0].pos !== 17) throw new Error('la carte Géomancienne ne vise pas la bonne case');
+  const championshipCard = playChanceCard(12, undefined, (game) => { game.tiles[1].owner = 0; });
+  if (championshipCard.players[0].pos !== 16 || championshipCard.turn.step !== 'championship') throw new Error('la carte Championnats ne déclenche pas le choix de propriété');
+  if (playChanceCard(13).players[0].jailCards !== 1) throw new Error('la carte de sortie doit être conservée');
+  const repairs = playChanceCard(14, undefined, (game) => { game.tiles[1] = { owner: 0, houses: 2 }; });
+  if (repairs.players[0].cash !== RULES.startCash - 50000) throw new Error('la carte réparations doit facturer les niveaux de taverne');
+  const birthday = playChanceCard(15, [{ name: 'A' }, { name: 'B' }], (game) => { game.players[1].cash = 100000; });
+  if (birthday.players[0].cash !== RULES.startCash + 50000 || birthday.players[1].cash !== 50000) throw new Error('la carte anniversaire doit collecter auprès des autres joueurs');
+  const round = playChanceCard(16, [{ name: 'A' }, { name: 'B' }]);
+  if (round.players[0].cash !== RULES.startCash - 30000 || round.players[1].cash !== RULES.startCash + 30000) throw new Error('la tournée générale doit payer les autres joueurs');
   st.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
   st.players[0].pos = 28; st.players[0].cash = 10000;
   E.apply(st, 0, { type: 'roll' }, () => 0.0, 1000); // 1+1 => case taxe -> dette
@@ -251,6 +289,12 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (timed.turnEndsAt - timed.startedAt !== RULES.turnDurationMs) throw new Error('chaque tour doit commencer avec 30 secondes');
   if (E.tick(timed, timed.turnEndsAt - 1) || timed.current === next) throw new Error('le tour ne doit pas expirer avant 30 secondes');
   if (!E.tick(timed, timed.turnEndsAt) || timed.current !== next) throw new Error('le tour doit passer automatiquement après 30 secondes');
+  const expiredAction = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 1000);
+  expiredAction.endsAt = 2000;
+  const expiredResult = E.apply(expiredAction, expiredAction.current, { type: 'roll' }, rng, 2000);
+  if (!expiredResult.ok || expiredAction.phase !== 'ended' || expiredAction.events.some((event) => event.type === 'dice') || !expiredAction.events.some((event) => event.type === 'gameover')) {
+    throw new Error('aucun lancer ne doit être traité après la fin du chrono');
+  }
 
   const timedDebt = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, Date.now());
   timedDebt.tiles[tile.kalecgos] = { owner: timedDebt.current, houses: 2 };

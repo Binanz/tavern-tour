@@ -87,7 +87,7 @@
     { text: 'Une chope cassée à rembourser. Payez 50 000.', kind: 'money', amount: -50000 },
     { text: 'Taxe sur les pièces d’or : payez 100 000.', kind: 'money', amount: -100000 },
     { text: 'Dividende du Marché noir : recevez 50 000.', kind: 'money', amount: 50000 },
-    { text: 'Rafraîchissement ! Avancez jusqu’à la Taverne et recevez 200 000.', kind: 'moveTo', tile: 0 },
+    { text: 'Rafraîchissement ! Avancez jusqu’à la Taverne et recevez 400 000 (gain doublé).', kind: 'moveTo', tile: 0 },
     { text: 'Naufrage ! Allez directement sur l’Île perdue, sans passer par la Taverne.', kind: 'jail' },
     { text: 'Vous reculez de 3 cases.', kind: 'moveBack', steps: 3 },
     { text: 'Avancez jusqu’au serviteur neutre le plus proche (Brann, Drakkari, Titus ou Leeroy).', kind: 'nearestStation' },
@@ -180,6 +180,9 @@
           }
           if (legacy.cardTexts && legacy.cardTexts[8] === 'Avancez jusqu’au serviteur le plus proche.') {
             legacy.cardTexts[8] = 'Avancez jusqu’au serviteur neutre le plus proche (Brann, Drakkari, Titus ou Leeroy).';
+          }
+          if (legacy.cardTexts && legacy.cardTexts[5] === 'Rafraîchissement ! Avancez jusqu’à la Taverne et recevez 200 000.') {
+            legacy.cardTexts[5] = 'Rafraîchissement ! Avancez jusqu’à la Taverne et recevez 400 000 (gain doublé).';
           }
           savedContent = JSON.stringify(legacy);
           global.localStorage.setItem(currentKey, savedContent);
