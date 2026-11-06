@@ -10,13 +10,18 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css?v=11" />
+  <link rel="stylesheet" href="./style.css?v=13" />
 </head>
 <body>
   <header class="topbar">
     <button class="brand" id="brandHome" type="button" disabled><span class="brand-gem"></span>Tavern Tour</button>
     <div class="topbar-center">
       <div class="timer" id="timer" title="Temps restant">20:00</div>
+      <div class="turn-clock" id="turnClock" hidden aria-live="polite">
+        <span class="fuse-icon" aria-hidden="true">🧨</span>
+        <span class="fuse-track" aria-hidden="true"><span class="fuse-burn"></span><i class="fuse-spark"></i></span>
+        <span class="turn-seconds" id="turnSeconds">30 s</span>
+      </div>
     </div>
     <div class="topbar-right">
       <div class="room-chip" id="roomChip" hidden>Salle <b id="roomCodeTop"></b></div>
@@ -169,10 +174,10 @@
   <div class="fx-layer" id="fx" aria-hidden="true"></div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="./config.js?v=5"></script>
-  <script src="./engine.js?v=4"></script>
+  <script src="./config.js?v=6"></script>
+  <script src="./engine.js?v=5"></script>
   <script src="./net.js?v=5"></script>
-  <script src="./app.js?v=5"></script>
+  <script src="./app.js?v=7"></script>
 <script data-pplx-inline-edit>
 (function () {
   if (window === window.top) return;

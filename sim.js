@@ -17,7 +17,9 @@ function checkInvariants(state, ctx) {
   state.players.forEach((p, i) => {
     if (p.cash < 0) throw new Error(`cash négatif joueur ${i} (${ctx})`);
     if (p.pos < 0 || p.pos >= 40) throw new Error(`position invalide (${ctx})`);
-    if (p.bankrupt && state.tiles.some((t) => t && t.owner === i)) throw new Error(`joueur en faillite possède encore des cases (${ctx})`);
+    if (p.bankrupt && state.tiles.some((t, tile) => t && t.owner === i && (!state.auction || state.auction.owner !== i || !state.auction.tiles.slice(state.auction.cursor).includes(tile)))) {
+      throw new Error(`joueur en faillite possède une case hors enchères (${ctx})`);
+    }
   });
   state.tiles.forEach((t, i) => {
     if (!t) return;
@@ -53,7 +55,11 @@ function runGame(seed, durationMin, verbose) {
   const stepCounts = {};
   while (state.phase === 'playing') {
     now += 4000; // ~4 s par action simulée
-    if (E.tick(state, now)) break;
+    if (E.tick(state, now)) {
+      if (state.phase !== 'playing') break;
+      checkInvariants(state, `seed ${seed} timeout`);
+      continue;
+    }
     const idx = state.current;
     const a = E.botAction(state, idx);
     if (!a) throw new Error(`bot sans action à l'étape ${state.turn.step}`);
@@ -182,11 +188,12 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (!E.apply(s3, 1, { type: 'build', houses: E.HOTEL }, rng, 0).ok) throw new Error('Serviteur doré refusé');
   if (E.canBuyout(s3, 0, 39)) throw new Error('un Serviteur doré ne doit pas être rachetable');
   if (E.computeRent(s3, 39, 7) !== CFG.BOARD[39].rents[E.HOTEL]) throw new Error('loyer Serviteur doré attendu');
-  // Revente du Serviteur doré : le niveau revient à Taverne 4.
+  // La vente d'une propriété entière inclut toutes ses tavernes.
   s3.current = 1; s3.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
   const before = s3.players[1].cash;
+  const invested = E.tileValue(s3, 39);
   if (!E.apply(s3, 1, { type: 'sell', tile: 39 }, rng, 0).ok) throw new Error('revente refusée');
-  if (s3.players[1].cash - before !== hc * RULES.hotelCostMult * RULES.sellRatio || s3.tiles[39].houses !== 4) throw new Error('revente Serviteur doré incorrecte');
+  if (s3.players[1].cash - before !== Math.floor(invested * 0.75) || s3.tiles[39].owner !== null || s3.tiles[39].houses !== 0) throw new Error('vente complète du Serviteur doré incorrecte');
 
   const s5 = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
   s5.players[0].pos = 37;
@@ -194,7 +201,42 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (!E.apply(s5, 0, { type: 'buy', houses: 1 }, rng, 0).ok) throw new Error('achat Taverne 1 refusé');
   const resaleBefore = s5.players[0].cash;
   if (!E.apply(s5, 0, { type: 'sell', tile: 39 }, rng, 0).ok) throw new Error('revente Taverne 1 refusée');
-  if (s5.tiles[39].owner !== null || s5.tiles[39].houses !== 0 || s5.players[0].cash - resaleBefore !== Math.floor((CFG.BOARD[39].price + hc) * RULES.sellRatio)) throw new Error('revente Taverne 1 doit libérer la case');
+  if (s5.tiles[39].owner !== null || s5.tiles[39].houses !== 0 || s5.players[0].cash - resaleBefore !== Math.floor((CFG.BOARD[39].price + hc) * 0.75)) throw new Error('revente Taverne 1 doit rapporter 75 % de l’investissement');
+
+  const timed = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, Date.now());
+  const next = timed.turnOrder.find((i) => i !== timed.current);
+  if (timed.turnEndsAt - timed.startedAt !== RULES.turnDurationMs) throw new Error('chaque tour doit commencer avec 30 secondes');
+  if (E.tick(timed, timed.turnEndsAt - 1) || timed.current === next) throw new Error('le tour ne doit pas expirer avant 30 secondes');
+  if (!E.tick(timed, timed.turnEndsAt) || timed.current !== next) throw new Error('le tour doit passer automatiquement après 30 secondes');
+
+  const timedDebt = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, Date.now());
+  timedDebt.tiles[39] = { owner: timedDebt.current, houses: 2 };
+  timedDebt.turn = { step: 'debt', debt: { amount: 2100000, to: null, reason: 'test' }, offer: null, lastPay: null };
+  const debtPlayer = timedDebt.current;
+  const debtBefore = timedDebt.players[debtPlayer].cash;
+  const debtSale = E.sellValue(timedDebt, 39);
+  const debtDeadline = timedDebt.turnEndsAt;
+  if (!E.tick(timedDebt, debtDeadline) || timedDebt.turn.step === 'debt' || timedDebt.tiles[39].owner !== null) throw new Error('une dette doit être réglée par vente forcée à expiration du tour');
+  if (timedDebt.players[debtPlayer].cash !== debtBefore + debtSale - 2100000) throw new Error('la vente forcée doit créditer 75 % de l’investissement');
+
+  const s6 = createStartedGame([{ name: 'A' }, { name: 'B' }, { name: 'C' }], {}, Date.now());
+  s6.tiles[39] = { owner: 0, houses: 2 };
+  s6.tiles[37] = { owner: 0, houses: 1 };
+  s6.current = 0;
+  s6.turn = { step: 'debt', debt: { amount: 100000000, to: null, reason: 'test' }, offer: null, lastPay: null };
+  if (!E.apply(s6, 0, { type: 'declareBankrupt' }, rng, Date.now()).ok || !s6.auction) throw new Error('la faillite doit lancer les enchères');
+  const firstLot = s6.auction.tiles[0];
+  const secondLot = s6.auction.tiles[1];
+  const winner = s6.auction.current;
+  if (!E.apply(s6, winner, { type: 'auctionBid', amount: RULES.auctionMinBid }, rng, Date.now()).ok) throw new Error('enchère minimale refusée');
+  const secondBidder = s6.auction.current;
+  if (secondBidder === winner || !E.apply(s6, secondBidder, { type: 'auctionPass' }, rng, Date.now()).ok) throw new Error('le second joueur doit pouvoir passer');
+  if (s6.tiles[firstLot].owner !== winner || s6.tiles[firstLot].houses !== (firstLot === 39 ? 2 : 1) || s6.players[0].cash !== Math.floor(RULES.auctionMinBid / 2)) throw new Error('l’enchère doit inclure les niveaux et reverser 50 % au joueur en faillite');
+  while (s6.auction) {
+    const bidder = s6.auction.current;
+    if (!E.apply(s6, bidder, { type: 'auctionPass' }, rng, Date.now()).ok) throw new Error('passage d’enchère refusé');
+  }
+  if (s6.tiles[secondLot].owner !== null || s6.tiles[secondLot].houses !== 0) throw new Error('une propriété sans enchère doit retourner à la banque');
 
   // Tour du monde : toujours vers l'avant, salaire en passant par la Taverne
   const s4 = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);

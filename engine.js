@@ -62,6 +62,8 @@
       startedAt: null,
       durationMs,
       endsAt: null,
+      turnEndsAt: null,
+      auction: null,
       remainingMs: durationMs,
       ranking: null,
       turnCount: 0,
@@ -149,10 +151,7 @@
     return v;
   }
   function sellValue(state, i) {
-    const t = state.tiles[i];
-    if (BOARD[i].type === 'property' && t.houses > 1) return Math.floor(stepCost(i, t.houses) * RULES.sellRatio);
-    if (BOARD[i].type === 'property' && t.houses === 1) return Math.floor(tileValue(state, i) * RULES.sellRatio);
-    return Math.floor(BOARD[i].price * RULES.sellRatio);
+    return Math.floor(tileValue(state, i) * RULES.sellRatio);
   }
   function computeRent(state, i, diceSum) {
     const b = BOARD[i];
@@ -434,7 +433,7 @@
   }
 
   function nextTurn(state, now) {
-    now = now || Date.now();
+    now = now == null ? Date.now() : now;
     if (state.phase !== 'playing') return;
     if (now >= state.endsAt) { endGame(state, 'time'); return; }
     const a = alive(state);
@@ -448,33 +447,128 @@
     state.current = i;
     state.turnCount++;
     state.turn = newTurn();
+    state.turnEndsAt = now + RULES.turnDurationMs;
     const p = state.players[i];
     if (p.inJail) state.turn.step = 'jail';
     log(state, `— Au tour de ${p.name}${p.inJail ? ' (naufragé sur l’Île perdue)' : ''}.`, 'turn');
   }
 
-  function bankrupt(state, pIdx) {
+  function auctionBidders(state) {
+    return state.auction.order.filter((i) => !state.auction.passed.includes(i) && !state.players[i].bankrupt);
+  }
+  function beginAuction(state, pIdx, now) {
+    const tiles = state.tiles.map((tile, i) => tile && tile.owner === pIdx ? i : -1).filter((i) => i >= 0);
+    if (!tiles.length) { nextTurn(state, now); return; }
+    const order = [];
+    const start = state.turnOrder.indexOf(pIdx);
+    for (let offset = 1; offset <= state.turnOrder.length; offset++) {
+      const bidder = state.turnOrder[(start + offset) % state.turnOrder.length];
+      if (!state.players[bidder].bankrupt) order.push(bidder);
+    }
+    if (!order.length) { nextTurn(state, now); return; }
+    state.auction = { owner: pIdx, tiles, cursor: 0, order, passed: [], highestBid: 0, highestBidder: null, current: order[0], returnTo: pIdx };
+    state.current = order[0];
+    state.turn = newTurn();
+    state.turn.step = 'auction';
+    state.turnEndsAt = now + RULES.turnDurationMs;
+    log(state, `${state.players[pIdx].name} met ses propriétés aux enchères, niveaux de taverne inclus.`, 'warn');
+    logAuctionLot(state);
+  }
+  function logAuctionLot(state) {
+    const a = state.auction;
+    const i = a.tiles[a.cursor];
+    log(state, `Enchères pour ${BOARD[i].name} (${fmt(tileValue(state, i))} investis), appartenant à ${state.players[a.owner].name}.`);
+  }
+  function finishAuctionLot(state, now) {
+    const a = state.auction;
+    const i = a.tiles[a.cursor];
+    const owner = state.players[a.owner];
+    if (a.highestBidder !== null) {
+      const winner = state.players[a.highestBidder];
+      const recovery = Math.floor(a.highestBid / 2);
+      winner.cash -= a.highestBid;
+      owner.cash += recovery;
+      state.tiles[i].owner = a.highestBidder;
+      log(state, `${winner.name} remporte ${BOARD[i].name} avec ses niveaux pour ${fmt(a.highestBid)}. ${owner.name} récupère ${fmt(recovery)} (50 %).`, 'ok');
+      ev(state, { type: 'auctionWin', player: a.highestBidder, tile: i, amount: a.highestBid, recovery });
+    } else {
+      state.tiles[i].owner = null;
+      state.tiles[i].houses = 0;
+      if (state.championship && state.championship.tile === i) state.championship = null;
+      log(state, `Aucune enchère pour ${BOARD[i].name} : la propriété retourne à la banque.`);
+      ev(state, { type: 'auctionUnsold', tile: i });
+    }
+    a.cursor++;
+    if (a.cursor < a.tiles.length) {
+      a.passed = [];
+      a.highestBid = 0;
+      a.highestBidder = null;
+      a.current = a.order[0];
+      state.current = a.current;
+      state.turn = newTurn();
+      state.turn.step = 'auction';
+      state.turnEndsAt = now + RULES.turnDurationMs;
+      logAuctionLot(state);
+      return;
+    }
+    const returnTo = a.returnTo;
+    state.auction = null;
+    state.current = returnTo;
+    state.turn = newTurn();
+    nextTurn(state, now);
+  }
+  function advanceAuction(state, now) {
+    const a = state.auction;
+    const bidders = auctionBidders(state);
+    if (!bidders.length || (bidders.length === 1 && bidders[0] === a.highestBidder)) {
+      finishAuctionLot(state, now);
+      return;
+    }
+    const at = a.order.indexOf(a.current);
+    for (let offset = 1; offset <= a.order.length; offset++) {
+      const bidder = a.order[(at + offset) % a.order.length];
+      if (bidders.includes(bidder)) {
+        a.current = bidder;
+        state.current = bidder;
+        state.turn = newTurn();
+        state.turn.step = 'auction';
+        state.turnEndsAt = now + RULES.turnDurationMs;
+        log(state, `Au tour de ${state.players[bidder].name} d’enchérir ou de passer.`);
+        return;
+      }
+    }
+  }
+  function auctionAction(state, pIdx, action, now) {
+    const a = state.auction;
+    if (!a || state.turn.step !== 'auction' || pIdx !== a.current) return ERR('Ce n’est pas à vous d’enchérir.');
+    if (action.type === 'auctionPass') {
+      a.passed.push(pIdx);
+      log(state, `${state.players[pIdx].name} passe son tour d’enchères.`);
+    } else {
+      const amount = action.amount;
+      const minimum = a.highestBidder === null ? RULES.auctionMinBid : a.highestBid + RULES.auctionMinBid;
+      if (!Number.isSafeInteger(amount) || amount < minimum) return ERR(`L’enchère minimale est de ${fmt(minimum)}.`);
+      if (amount > state.players[pIdx].cash) return ERR('Vous n’avez pas assez d’or pour cette enchère.');
+      a.highestBid = amount;
+      a.highestBidder = pIdx;
+      log(state, `${state.players[pIdx].name} propose ${fmt(amount)} pour ${BOARD[a.tiles[a.cursor]].name}.`, 'rent');
+    }
+    advanceAuction(state, now);
+    return OK;
+  }
+  function bankrupt(state, pIdx, now) {
     const p = state.players[pIdx];
     const d = state.turn.debt;
     const to = d && typeof d.to === 'number' ? d.to : null;
-    // tout l'argent et les propriétés vont au créancier (ou à la banque)
+    // Le solde va au créancier ; les propriétés seront vendues aux enchères.
     if (to !== null) state.players[to].cash += p.cash;
     p.cash = 0;
-    for (let i = 0; i < N; i++) {
-      const t = state.tiles[i];
-      if (t && t.owner === pIdx) {
-        if (to !== null) { t.owner = to; }
-        else { t.owner = null; t.houses = 0; }
-        if (state.championship && state.championship.tile === i && to === null) state.championship = null;
-      }
-    }
     p.bankrupt = true;
     p.inJail = false;
     state.turn.debt = null;
     ev(state, { type: 'bankrupt', player: pIdx });
     log(state, `${p.name} fait faillite${to !== null ? ` au profit de ${state.players[to].name}` : ''} !`, 'warn');
-    if (alive(state).length <= 1) endGame(state, 'bankrupt');
-    else nextTurn(state);
+    beginAuction(state, pIdx, now == null ? Date.now() : now);
   }
 
   // ---------- Actions ----------
@@ -483,13 +577,14 @@
 
   function apply(state, pIdx, action, rng, now) {
     rng = rng || Math.random;
-    now = now || Date.now();
+    now = now == null ? Date.now() : now;
     state.events = [];
     if (state.phase !== 'playing') return ERR('La partie est terminée.');
     const p = state.players[pIdx];
     const t = state.turn;
     if (p.bankrupt) return ERR('Joueur en faillite.');
     if (pIdx !== state.current) return ERR('Ce n’est pas votre tour.');
+    if (state.auction) return auctionAction(state, pIdx, action, now);
 
     if (state.ordering) {
       if (action.type !== 'orderRoll' || t.step !== 'order') return ERR('Lancez les dés pour déterminer l’ordre de passage.');
@@ -528,8 +623,9 @@
       state.ordering = null;
       state.turn = newTurn();
       state.turnCount = 1;
-      state.startedAt = now || Date.now();
+      state.startedAt = now == null ? Date.now() : now;
       state.endsAt = state.startedAt + state.durationMs;
+      state.turnEndsAt = state.startedAt + RULES.turnDurationMs;
       state.remainingMs = state.durationMs;
       log(state, `Ordre de passage : ${state.turnOrder.map((i) => state.players[i].name).join(' → ')}.`);
       log(state, `La partie commence ! ${state.players[state.current].name} ouvre le bal.`);
@@ -704,30 +800,20 @@
         if (!['roll', 'done', 'debt', 'jail', 'buy', 'build', 'buyout'].includes(t.step)) return ERR('Impossible de vendre maintenant.');
         const tile = state.tiles[i];
         const v = sellValue(state, i);
-        if (BOARD[i].type === 'property' && tile.houses > 1) {
-          const wasGolden = tile.houses === HOTEL;
-          tile.houses--;
-          log(state, `${p.name} revend ${wasGolden ? 'le serviteur doré' : `Taverne ${tile.houses + 1}`} sur ${BOARD[i].name} (+${fmt(v)}).`);
-        } else if (BOARD[i].type === 'property' && tile.houses === 1) {
-          tile.owner = null;
-          tile.houses = 0;
-          if (state.championship && state.championship.tile === i) state.championship = null;
-          log(state, `${p.name} revend ${BOARD[i].name} et sa Taverne 1 à la banque (+${fmt(v)}).`);
-        } else {
-          tile.owner = null;
-          tile.houses = 0;
-          if (state.championship && state.championship.tile === i) state.championship = null;
-          log(state, `${p.name} revend ${BOARD[i].name} à la banque (+${fmt(v)}).`);
-        }
+        const levels = BOARD[i].type === 'property' && tile.houses > 0 ? ` avec ${tile.houses === HOTEL ? 'son Serviteur doré' : `sa Taverne ${tile.houses}`}` : '';
+        tile.owner = null;
+        tile.houses = 0;
+        if (state.championship && state.championship.tile === i) state.championship = null;
+        log(state, `${p.name} revend ${BOARD[i].name}${levels} à la banque (+${fmt(v)}, 75 % de l’investissement).`);
         p.cash += v;
-        ev(state, { type: 'sell', player: pIdx, tile: i });
+        ev(state, { type: 'sell', player: pIdx, tile: i, amount: v });
         if (t.step === 'debt') settleDebt(state, pIdx);
         return OK;
       }
       case 'declareBankrupt': {
         if (t.step !== 'debt') return ERR('Vous n’avez pas de dette.');
         if (p.cash + liquidationValue(state, pIdx) >= t.debt.amount) return ERR('Vous pouvez encore vendre pour payer.');
-        bankrupt(state, pIdx);
+        bankrupt(state, pIdx, now);
         return OK;
       }
       case 'endTurn': {
@@ -742,12 +828,45 @@
 
   // Chrono : à appeler régulièrement côté hôte.
   function tick(state, now) {
-    now = now || Date.now();
+    now = now == null ? Date.now() : now;
     if (state.phase !== 'playing' || state.ordering) return false;
     state.remainingMs = Math.max(0, state.endsAt - now);
     if (now >= state.endsAt) {
       state.events = [];
       endGame(state, 'time');
+      return true;
+    }
+    if (state.turnEndsAt != null && now >= state.turnEndsAt) {
+      state.events = [];
+      if (state.auction) {
+        log(state, `${state.players[state.current].name} n’a pas enchéri à temps : il passe.`, 'warn');
+        auctionAction(state, state.current, { type: 'auctionPass' }, now);
+      } else if (state.turn.step === 'debt') {
+        const pIdx = state.current;
+        const debt = state.turn.debt;
+        log(state, `${state.players[pIdx].name} n’a pas réglé sa dette à temps.`, 'warn');
+        while (state.phase === 'playing' && state.turn.step === 'debt') {
+          if (state.players[pIdx].cash + liquidationValue(state, pIdx) < debt.amount) {
+            bankrupt(state, pIdx, now);
+            break;
+          }
+          let tile = -1;
+          let value = Infinity;
+          state.tiles.forEach((owned, i) => {
+            if (owned && owned.owner === pIdx && sellValue(state, i) < value) {
+              tile = i;
+              value = sellValue(state, i);
+            }
+          });
+          if (tile < 0) { bankrupt(state, pIdx, now); break; }
+          apply(state, pIdx, { type: 'sell', tile }, Math.random, now);
+        }
+        if (state.phase === 'playing' && !state.auction) nextTurn(state, now);
+      } else {
+        const pIdx = state.current;
+        log(state, `${state.players[pIdx].name} n’a pas terminé son tour à temps.`, 'warn');
+        nextTurn(state, now);
+      }
       return true;
     }
     return false;
@@ -759,6 +878,15 @@
     const t = state.turn;
     const reserve = 150000;
     if (state.ordering) return { type: 'orderRoll' };
+    if (state.auction && state.auction.current === pIdx) {
+      const a = state.auction;
+      const minimum = a.highestBidder === null ? RULES.auctionMinBid : a.highestBid + RULES.auctionMinBid;
+      const limit = Math.floor(tileValue(state, a.tiles[a.cursor]) * 0.75 / RULES.auctionMinBid) * RULES.auctionMinBid;
+      if (p.cash >= minimum && limit >= minimum && a.highestBid < limit) {
+        return { type: 'auctionBid', amount: Math.min(limit, minimum) };
+      }
+      return { type: 'auctionPass' };
+    }
     switch (t.step) {
       case 'roll': return { type: 'roll' };
       case 'jail':

@@ -18,7 +18,9 @@
     worldTourFee: 50000,       // voyager (toujours vers l'avant) vers une case libre ou à soi
     taxA: 200000,              // Impôt (case 4)
     taxB: 100000,              // Taxe de luxe (case 38)
-    sellRatio: 0.5,            // revente à la banque = 50 % de la valeur
+    sellRatio: 0.75,           // revente d'une propriété entière = 75 % de l'investissement total
+    turnDurationMs: 30000,     // durée de jeu par tour
+    auctionMinBid: 10000,      // enchère minimale et incrément minimal
     buyoutMult: 1.25,          // racheter une propriété = 125 % de sa valeur d'achat
     hotelCostMult: 2,          // le serviteur doré coûte 2 niveaux de taverne
     maxHouses: 4,              // 4 niveaux de taverne, puis le serviteur doré
