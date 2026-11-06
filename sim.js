@@ -116,6 +116,9 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (E.apply(s3, 0, { type: 'buy', houses: 3 }, rng, 0).ok) throw new Error('Taverne 3 devrait être verrouillée au premier tour');
   if (E.apply(s3, 0, { type: 'buy', houses: 4 }, rng, 0).ok) throw new Error('Taverne 4 devrait être verrouillée au premier tour');
   const hc = CFG.GROUPS.dragon.houseCost;
+  const purchaseOptions = E.buyOptions(s3, 0, 39);
+  if (purchaseOptions.map((option) => option.houses).join(',') !== '1,2,3,4') throw new Error('achat doit commencer à Taverne 1');
+  if (E.apply(s3, 0, { type: 'buy', houses: 0 }, rng, 0).ok) throw new Error('achat sans taverne accepté');
   if (!E.apply(s3, 0, { type: 'buy', houses: 2 }, rng, 0).ok) throw new Error('achat avec 2 Tavernes refusé');
   if (s3.players[0].cash !== 2000000 - 400000 - 2 * hc) throw new Error('prix achat 2 Tavernes incorrect: ' + s3.players[0].cash);
   if (s3.tiles[39].houses !== 2) throw new Error('Taverne 2 attendue');
@@ -159,6 +162,14 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   const before = s3.players[1].cash;
   if (!E.apply(s3, 1, { type: 'sell', tile: 39 }, rng, 0).ok) throw new Error('revente refusée');
   if (s3.players[1].cash - before !== hc * RULES.hotelCostMult * RULES.sellRatio || s3.tiles[39].houses !== 4) throw new Error('revente Serviteur doré incorrecte');
+
+  const s5 = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 0);
+  s5.players[0].pos = 37;
+  E.apply(s5, 0, { type: 'roll' }, () => 0.0, 0);
+  if (!E.apply(s5, 0, { type: 'buy', houses: 1 }, rng, 0).ok) throw new Error('achat Taverne 1 refusé');
+  const resaleBefore = s5.players[0].cash;
+  if (!E.apply(s5, 0, { type: 'sell', tile: 39 }, rng, 0).ok) throw new Error('revente Taverne 1 refusée');
+  if (s5.tiles[39].owner !== null || s5.tiles[39].houses !== 0 || s5.players[0].cash - resaleBefore !== Math.floor((CFG.BOARD[39].price + hc) * RULES.sellRatio)) throw new Error('revente Taverne 1 doit libérer la case');
 
   // Tour du monde : toujours vers l'avant, salaire en passant par la Taverne
   const s4 = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 0);

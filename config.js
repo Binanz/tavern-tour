@@ -42,7 +42,7 @@
     dragon:    { label: 'Dragon',      color: '#3457c4', houseCost: 200000 },
   };
 
-  // Loyers : terrain nu, niveaux de taverne 1 à 4, serviteur doré.
+  // Loyers : index 0 réservé aux cases sans taverne; achats possibles du niveau 1 au serviteur doré.
   const RENT_MULT = [0.2, 0.5, 1.0, 1.8, 3.0, 5.0];
   const rents = (price) => RENT_MULT.map((m) => Math.round((price * m) / 1000) * 1000);
 

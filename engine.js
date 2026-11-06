@@ -107,12 +107,12 @@
     const b = BOARD[i]; const t = state.tiles[i];
     return b.type === 'property' && t.owner !== null && t.owner !== pIdx && t.houses < HOTEL && !state.players[t.owner].bankrupt && state.players[pIdx].cash >= buyoutPrice(state, i);
   }
-  // Options d'achat d'une case libre : terrain nu ou niveaux de taverne 1..4.
+  // Property purchases start at Tavern 1; bare properties are not a game level.
   function buyOptions(state, pIdx, i) {
     const b = BOARD[i]; const p = state.players[pIdx];
     if (b.type !== 'property') return [{ houses: 0, cost: b.price, locked: false, affordable: p.cash >= b.price }];
     const out = [];
-    for (let h = 0; h <= RULES.maxHouses; h++) {
+    for (let h = 1; h <= RULES.maxHouses; h++) {
       const cost = b.price + levelCost(i, 0, h);
       const locked = h >= RULES.lockedHousesBeforeLap && p.laps < 1;
       out.push({ houses: h, cost, locked, affordable: p.cash >= cost });
@@ -148,7 +148,8 @@
   }
   function sellValue(state, i) {
     const t = state.tiles[i];
-    if (BOARD[i].type === 'property' && t.houses > 0) return Math.floor(stepCost(i, t.houses) * RULES.sellRatio);
+    if (BOARD[i].type === 'property' && t.houses > 1) return Math.floor(stepCost(i, t.houses) * RULES.sellRatio);
+    if (BOARD[i].type === 'property' && t.houses === 1) return Math.floor(tileValue(state, i) * RULES.sellRatio);
     return Math.floor(BOARD[i].price * RULES.sellRatio);
   }
   function computeRent(state, i, diceSum) {
@@ -652,10 +653,15 @@
         if (!['roll', 'done', 'debt', 'jail', 'buy', 'build', 'buyout'].includes(t.step)) return ERR('Impossible de vendre maintenant.');
         const tile = state.tiles[i];
         const v = sellValue(state, i);
-        if (BOARD[i].type === 'property' && tile.houses > 0) {
+        if (BOARD[i].type === 'property' && tile.houses > 1) {
           const wasGolden = tile.houses === HOTEL;
           tile.houses--;
           log(state, `${p.name} revend ${wasGolden ? 'le serviteur doré' : `Taverne ${tile.houses + 1}`} sur ${BOARD[i].name} (+${fmt(v)}).`);
+        } else if (BOARD[i].type === 'property' && tile.houses === 1) {
+          tile.owner = null;
+          tile.houses = 0;
+          if (state.championship && state.championship.tile === i) state.championship = null;
+          log(state, `${p.name} revend ${BOARD[i].name} et sa Taverne 1 à la banque (+${fmt(v)}).`);
         } else {
           tile.owner = null;
           tile.houses = 0;
@@ -718,6 +724,7 @@
         if (!want) return { type: 'skipBuy' };
         // le plus haut niveau qui laisse une réserve confortable
         const opts = buyOptions(state, pIdx, t.offer).filter((o) => o.affordable && !o.locked);
+        if (!opts.length) return { type: 'skipBuy' };
         let best = opts[0];
         for (const o of opts) if (p.cash - o.cost >= reserve + 150000) best = o;
         return { type: 'buy', houses: best.houses };

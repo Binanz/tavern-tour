@@ -31,7 +31,7 @@
     prevCash: null, prevCurrent: -1, prevTurnCount: 0, autoEndTimer: null,
     hostLostTimer: null, hostLostShown: false,
   };
-  const LEVEL_LABELS = ['Terrain nu', 'Taverne 1', 'Taverne 2', 'Taverne 3', 'Taverne 4', 'Serviteur doré'];
+  const LEVEL_LABELS = ['Sans taverne', 'Taverne 1', 'Taverne 2', 'Taverne 3', 'Taverne 4', 'Serviteur doré'];
 
   // Battement de cœur : détecte les déconnexions que WebRTC ne signale pas vite.
   setInterval(() => {
@@ -794,7 +794,7 @@
   function levelButtons(opts, i, kind) {
     const b = BOARD[i];
     return `<div class="levels">${opts.map((o) => {
-      const name = o.houses === 0 ? 'Terrain nu' : LEVEL_LABELS[o.houses];
+      const name = o.houses === 0 ? 'Achat' : LEVEL_LABELS[o.houses];
       const pips = o.houses === E.HOTEL ? '<i class="gold"></i>' : '<i></i>'.repeat(o.houses);
       const rentNow = b.type === 'property' ? b.rents[o.houses] : null;
       const hint = o.locked ? 'Après un passage par la Taverne' : !o.affordable ? 'Pas assez d’or' : rentNow !== null ? `Loyer ${fmt(rentNow)}${o.houses === E.HOTEL ? ' · imprenable' : ''}` : '';
@@ -896,7 +896,7 @@
     if (b.type === 'property') {
       const owner = t.owner !== null ? s.players[t.owner] : null;
       html += `<p>${GROUPS[b.group].label} · Prix ${fmt(b.price)} · Niveau de taverne ${fmt(GROUPS[b.group].houseCost)} · Serviteur doré ${fmt(GROUPS[b.group].houseCost * RULES.hotelCostMult)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${s.championship && s.championship.tile === i ? ` · 🏆 Championnats x${s.championship.mult}` : ''}</p>`;
-      html += '<table>' + b.rents.map((r, k) => `<tr class="${owner && t.houses === k ? 'now' : ''}"><td>${LEVEL_LABELS[k]}${k ? ` <small class="muted">(+${fmt(E.levelCost(i, 0, k))})</small>` : ''}</td><td>${fmt(r)}</td></tr>`).join('') + `<tr><td>Type complet, terrain nu</td><td>${fmt(b.rents[0] * 2)}</td></tr></table>`;
+      html += '<table>' + b.rents.map((r, k) => k === 0 ? '' : `<tr class="${owner && t.houses === k ? 'now' : ''}"><td>${LEVEL_LABELS[k]} <small class="muted">(+${fmt(E.levelCost(i, 0, k))})</small></td><td>${fmt(r)}</td></tr>`).join('') + '</table>';
       if (owner && t.owner !== me) html += `<p>${t.houses === E.HOTEL ? 'Serviteur doré : cette case ne peut pas être rachetée.' : `Rachat possible en y tombant : <b>${fmt(E.buyoutPrice(s, i))}</b> (${RULES.buyoutMult}x l’investissement de ${esc(owner.name)}).`}</p>`;
     } else if (b.type === 'station') {
       const owner = t.owner !== null ? s.players[t.owner] : null;
@@ -947,7 +947,7 @@
   function showRules() {
     openModal(`<div class="rules"><h2>Règles de la taverne</h2>
       <h3>But</h3><ul><li>Quand le chrono sonne, le joueur le plus riche gagne : or + valeur des cases et constructions.</li><li>La partie s’arrête aussi si tous les autres joueurs font faillite.</li></ul>
-      <h3>Tour de jeu</h3><ul><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue. Le tour passe automatiquement au suivant.</li><li><b>Case libre</b> : achetez-la directement au niveau voulu — terrain nu ou Taverne 1 à 4. Les Tavernes 3 et 4 se débloquent après un premier passage par la Taverne.</li><li><b>Case à vous</b> : améliorez-la jusqu’à Taverne 4, puis en Serviteur doré, pour le loyer maximal. Le Serviteur doré rend la case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour ${RULES.buyoutMult}x ce que son propriétaire a investi (sauf Serviteur doré). L’or lui est versé et les niveaux restent.</li><li>Posséder tous les serviteurs d’un type double le loyer des terrains nus.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li></ul>
+      <h3>Tour de jeu</h3><ul><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue. Le tour passe automatiquement au suivant.</li><li><b>Case libre</b> : achetez-la directement avec une Taverne de niveau 1 à 4. Les Tavernes 3 et 4 se débloquent après un premier passage par la Taverne.</li><li><b>Case à vous</b> : améliorez-la jusqu’à Taverne 4, puis en Serviteur doré, pour le loyer maximal. Le Serviteur doré rend la case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour ${RULES.buyoutMult}x ce que son propriétaire a investi (sauf Serviteur doré). L’or lui est versé et les niveaux restent.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li></ul>
       <h3>Cases spéciales</h3><ul><li><b>Chance</b> : tirez une carte (gains, pertes, déplacements, carte de sortie…).</li><li><b>Île perdue</b> : payez ${fmt(RULES.jailFee)} ou faites un double pour partir (3 essais).</li><li><b>Championnats</b> : pour ${fmt(RULES.championshipFee)}, le loyer d’une de vos cases est multiplié (x2, x3… jusqu’à x${RULES.championshipMaxMult}).</li><li><b>Tour du monde</b> : pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous ; si vous passez par la Taverne, vous touchez les ${fmt(RULES.salary)}.</li><li><b>Serviteurs neutres</b> (Brann, Drakkari, Titus, Leeroy) : loyer de ${fmt(RULES.stationRents[0])} à ${fmt(RULES.stationRents[3])} selon le nombre possédé. Ni niveaux de taverne ni rachat.</li><li><b>Services</b> (Sombre Don, Bibelot) : loyer = dés x ${fmt(RULES.utilityMult[0])}, ou x ${fmt(RULES.utilityMult[1])} avec les deux.</li></ul>
       <h3>Dettes</h3><ul><li>Si vous ne pouvez pas payer, revendez vos niveaux de taverne puis vos propriétés à la banque à 50 % de leur valeur. Sinon, faillite : vos biens vont au créancier.</li></ul>
       <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-close>Compris</button></div></div>`);
