@@ -620,9 +620,61 @@
   const ERR = (m) => ({ ok: false, error: m });
   const OK = { ok: true };
 
+  // Transitions réservées à la session hôte, jamais aux actions des joueurs.
+  function changeController(state, pIdx, command) {
+    const p = Number.isInteger(pIdx) && state.players[pIdx];
+    if (!p || !command) return ERR('Joueur introuvable.');
+    if (command.type === 'disconnect') {
+      if (p.isBot) return { ok: true, changed: false };
+      p.isBot = true;
+      p.connected = false;
+      state.events = [];
+      log(state, `${p.name} s’est déconnecté : un bot prend le relais.`, 'warn');
+      return { ok: true, changed: true };
+    }
+    const peerId = command.peerId;
+    if (typeof peerId !== 'string' || !peerId) return ERR('Connexion invalide.');
+    if (command.type === 'reconnect') {
+      if (p.peerId !== peerId) return ERR('Cette place appartient à une autre connexion.');
+      const wasBot = p.isBot;
+      p.isBot = false;
+      p.connected = true;
+      state.events = [];
+      if (wasBot) log(state, `${p.name} est de retour dans la partie.`);
+      return { ok: true, changed: true };
+    }
+    if (command.type === 'claim') {
+      if (state.phase !== 'playing' || !p.isBot || p.bankrupt) return ERR('Ce bot ne peut plus être remplacé.');
+      if (state.players.some((player, i) => i !== pIdx && player.peerId === peerId)) return ERR('Cette connexion contrôle déjà un joueur.');
+      p.isBot = false;
+      p.connected = true;
+      p.peerId = peerId;
+      state.events = [];
+      log(state, `${p.name} rejoint la partie et remplace un bot.`);
+      return { ok: true, changed: true };
+    }
+    return ERR('Changement de contrôleur inconnu.');
+  }
+
+  // Le rendu lit une horloge dérivée ; seul l’hôte rafraîchit l’état publié.
+  function readClock(state, now) {
+    now = now == null ? Date.now() : now;
+    return {
+      remainingMs: state.ordering ? state.durationMs : Math.max(0, state.endsAt - now),
+      turnRemainingMs: state.ordering ? RULES.turnDurationMs : Math.max(0, state.turnEndsAt - now),
+      at: now,
+    };
+  }
+
+  function refreshClock(state, now) {
+    state.remainingMs = readClock(state, now).remainingMs;
+  }
+
   function apply(state, pIdx, action, rng, now) {
     rng = rng || Math.random;
     now = now == null ? Date.now() : now;
+    if (!Number.isInteger(pIdx) || !state.players[pIdx]) return ERR('Joueur introuvable.');
+    if (!action || typeof action !== 'object' || Array.isArray(action) || typeof action.type !== 'string') return ERR('Action invalide.');
     state.events = [];
     if (state.phase !== 'playing') return ERR('La partie est terminée.');
     if (!state.ordering && state.endsAt != null && now >= state.endsAt) {
@@ -882,7 +934,7 @@
   function tick(state, now) {
     now = now == null ? Date.now() : now;
     if (state.phase !== 'playing' || state.ordering) return false;
-    state.remainingMs = Math.max(0, state.endsAt - now);
+    refreshClock(state, now);
     if (now >= state.endsAt) {
       state.events = [];
       endGame(state, 'time');
@@ -1015,6 +1067,7 @@
   }
 
   const ENGINE = {
+    changeController, readClock, refreshClock,
     createGame, apply, tick, botAction, computeRent, netWorth, liquidationValue, sellValue, tileValue,
     teleportTargets, championshipTargets, canBuild, canBuyout, buyoutPrice, buyOptions, buildOptions, levelCost, stepCost, HOTEL,
     ownsGroup, countOwned, houseCost, isOwnable, alive, fmt, N,

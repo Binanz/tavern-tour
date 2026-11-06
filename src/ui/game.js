@@ -5,12 +5,6 @@ export function createGameView({ showMoneyDelta, showTurnOverlay, processEvents,
     const s = app.state; if (!s) return;
     showGame();
     if (app.displayedPos.length !== s.players.length) { app.displayedPos = s.players.map((p) => p.pos); app.pawnQueue = s.players.map(() => []); app.pawnBusy = s.players.map(() => false); buildPawns(); }
-    if (!s.ordering && s.turnEndsAt == null) s.turnEndsAt = Date.now() + RULES.turnDurationMs;
-    app.sync = {
-      remainingMs: s.remainingMs,
-      turnRemainingMs: s.ordering ? RULES.turnDurationMs : Math.max(0, s.turnEndsAt - Date.now()),
-      at: Date.now(),
-    };
     app.animDelay = processEvents(s);
     app.animating = app.animDelay > 0;
     // variations d'or (hors salaire déjà affiché pendant le déplacement)

@@ -2,7 +2,7 @@ import { $, app, RULES, TOKENS } from './runtime.js';
 import { SFX } from './audio.js';
 import { toast, openModal, closeModal, esc } from './ui/helpers.js';
 
-export function createConnection({ setNetStatus, showLobby, applyLobbyProfile, broadcastLobby, publicLobby, leaveLobby, dispatch, afterChange, onState }) {
+export function createConnection({ setNetStatus, showLobby, applyLobbyProfile, broadcastLobby, publicLobby, leaveLobby, dispatch, changeController, receiveState }) {
   // Messages reçus par l'hôte
   function hostOnMessage(from, msg) {
     if (!msg || typeof msg !== 'object') return;
@@ -13,16 +13,8 @@ export function createConnection({ setNetStatus, showLobby, applyLobbyProfile, b
       const existing = L.players.findIndex((p) => p.peerId === from);
       if (existing >= 0) {
         if (L.started && app.state) {
-          const player = app.state.players[existing];
-          if (player) {
-            const wasBot = player.isBot;
-            player.isBot = false;
-            player.connected = true;
-            L.players[existing].isBot = false;
-            app.lastSeen[from] = Date.now();
-            if (wasBot) app.state.log.push({ t: `${player.name} est de retour dans la partie.`, k: 'info', n: app.state.turnCount });
-            afterChange();
-          } else app.net.sendTo(from, { type: 'rejected', reason: 'Impossible de restaurer votre place dans cette partie.' });
+          const result = changeController(existing, { type: 'reconnect', peerId: from });
+          if (!result.ok) app.net.sendTo(from, { type: 'rejected', reason: 'Impossible de restaurer votre place dans cette partie.' });
         } else app.net.sendTo(from, { type: 'lobby', lobby: publicLobby(), yourIdx: existing });
         return;
       }
@@ -56,17 +48,13 @@ export function createConnection({ setNetStatus, showLobby, applyLobbyProfile, b
       if (!app.pendingClaims[from]) return;
       delete app.pendingClaims[from];
       const idx = Number(msg.index);
-      const player = Number.isInteger(idx) && app.state && app.state.players[idx];
-      if (!app.lobby || !app.lobby.started || !app.state || app.state.phase !== 'playing' || !player || !player.isBot || player.bankrupt) {
+      const result = app.lobby && app.lobby.started
+        ? changeController(idx, { type: 'claim', peerId: from })
+        : { ok: false };
+      if (!result.ok) {
         app.net.sendTo(from, { type: 'rejected', reason: 'Ce bot ne peut plus être remplacé. Rejoignez à nouveau la partie pour actualiser les choix.' });
         return;
       }
-      player.isBot = false;
-      player.connected = true;
-      player.peerId = from;
-      app.lobby.players[idx] = { name: player.name, token: player.token, isBot: false, peerId: from };
-      app.state.log.push({ t: `${player.name} rejoint la partie et remplace un bot.`, k: 'info', n: app.state.turnCount });
-      afterChange();
       return;
     }
     if (msg.type === 'profile' && app.lobby && !app.lobby.started) {
@@ -94,12 +82,7 @@ export function createConnection({ setNetStatus, showLobby, applyLobbyProfile, b
     }
     if (app.state) {
       const i = app.state.players.findIndex((p) => p.peerId === id);
-      if (i >= 0 && !app.state.players[i].isBot) {
-        app.state.players[i].isBot = true; app.state.players[i].connected = false;
-        app.state.log.push({ t: `${app.state.players[i].name} s’est déconnecté : un bot prend le relais.`, k: 'warn', n: app.state.turnCount });
-        app.state.events = [];
-        afterChange();
-      }
+      if (i >= 0) changeController(i, { type: 'disconnect' });
     }
   }
 
@@ -123,9 +106,7 @@ export function createConnection({ setNetStatus, showLobby, applyLobbyProfile, b
         if (!app.gameShown) showLobby();
         break;
       case 'state':
-        app.state = msg.state; app.myIdx = app.state.players.findIndex((p) => p.peerId === app.net.peer.id);
-        if (app.myIdx < 0) app.myIdx = msg.yourIdx != null ? msg.yourIdx : 0;
-        onState();
+        receiveState(msg.state, msg.yourIdx);
         break;
       case 'error': toast(msg.msg); SFX.bad(); break;
       case 'rejected':

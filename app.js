@@ -28,8 +28,8 @@ const connection = createConnection({
   publicLobby: (...args) => lobby.publicLobby(...args),
   leaveLobby: (...args) => lobby.leaveLobby(...args),
   dispatch: (...args) => session.dispatch(...args),
-  afterChange: (...args) => session.afterChange(...args),
-  onState: (...args) => game.onState(...args),
+  changeController: (...args) => session.changeController(...args),
+  receiveState: (...args) => session.receiveState(...args),
 });
 const session = createSession({
   shuffledBotNames: (...args) => lobby.shuffledBotNames(...args),

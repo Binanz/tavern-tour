@@ -25,7 +25,6 @@ export function createSession({ shuffledBotNames, setNetStatus, onState }) {
     $('brandHome').disabled = true;
     document.querySelector('.topbar').classList.remove('game-ended');
     app.state = E.createGame(players, { durationMin });
-    app.state.players.forEach((p, i) => { if (players[i].peerId) p.peerId = players[i].peerId; });
     app.displayedPos = app.state.players.map(() => 0);
     app.prevCash = null; app.prevCurrent = -1; app.prevTurnCount = 0;
     app.pawnQueue = app.state.players.map(() => []);
@@ -38,33 +37,52 @@ export function createSession({ shuffledBotNames, setNetStatus, onState }) {
   function hostTick() {
     if (!app.state || app.mode === 'client') return;
     if (E.tick(app.state, Date.now())) afterChange();
-    else {     app.sync = {
-      remainingMs: app.state.remainingMs,
-      turnRemainingMs: Math.max(0, app.state.turnEndsAt - Date.now()),
-      at: Date.now(),
-    }; }
+    else app.sync = E.readClock(app.state, Date.now());
   }
 
   function dispatch(idx, action, from) {
+    if (!app.state || app.mode === 'client') return { ok: false, error: 'Seul l’hôte peut appliquer une action.' };
     const res = E.apply(app.state, idx, action, Math.random, Date.now());
     if (!res.ok) {
       if (from === 'me') { toast(res.error); SFX.bad(); }
       else if (from) app.net.sendTo(from, { type: 'error', msg: res.error });
-      return;
+      return res;
     }
     afterChange();
+    return res;
   }
 
   function afterChange() {
     const s = app.state;
-    s.remainingMs = s.ordering ? s.durationMs : Math.max(0, s.endsAt - Date.now());
-    if (!s.ordering && s.turnEndsAt == null) s.turnEndsAt = Date.now() + RULES.turnDurationMs;
+    if (!s || app.mode === 'client') return;
+    const now = Date.now();
+    E.refreshClock(s, now);
+    app.sync = E.readClock(s, now);
     if (app.mode === 'host' && app.net) {
       s.players.forEach((p, i) => { if (p.peerId && p.peerId !== 'host') app.net.sendTo(p.peerId, { type: 'state', state: s, yourIdx: i }); });
     }
     onState();
     scheduleBot();
     scheduleAutoEnd();
+  }
+
+  function receiveState(state, yourIdx) {
+    if (app.mode !== 'client') return;
+    app.state = state;
+    app.myIdx = state.players.findIndex((p) => p.peerId === app.net.peer.id);
+    if (app.myIdx < 0) app.myIdx = yourIdx != null ? yourIdx : 0;
+    app.sync = { ...E.readClock(state, Date.now()), remainingMs: state.remainingMs };
+    onState();
+  }
+
+  function changeController(idx, command) {
+    if (!app.state || app.mode !== 'host') return { ok: false, error: 'Seul l’hôte peut changer un joueur.' };
+    const result = E.changeController(app.state, idx, command);
+    if (!result.ok || !result.changed) return result;
+    const player = app.state.players[idx];
+    app.lobby.players[idx] = { name: player.name, token: player.token, isBot: player.isBot, peerId: player.peerId };
+    afterChange();
+    return result;
   }
 
   // Fin de tour automatique : plus de bouton, le tour passe tout seul après les animations.
@@ -123,5 +141,5 @@ export function createSession({ shuffledBotNames, setNetStatus, onState }) {
   }
 
 
-  return { startGame, launch, dispatch, afterChange, act, returnHome };
+  return { startGame, launch, dispatch, afterChange, act, returnHome, receiveState, changeController };
 }

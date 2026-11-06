@@ -39,4 +39,12 @@ Les contrôleurs exposent des fonctions via une factory. Leurs interactions sont
 
 Pour ajouter une règle, modifier le moteur et ses tests dans `sim.js`, puis l'action ou la vue concernée. Pour ajouter un écran, créer son module UI et le brancher dans `app.js`. Garder les détails PeerJS dans `net.js` et le traitement des messages dans `src/connection.js`.
 
-Le découpage conserve encore les mutations historiques de l'état partagé ; la centralisation des écritures de partie fait l'objet d'un changement séparé.
+## État de partie et autorité
+
+Le moteur possède les écritures de l'état de partie : actions de jeu via `apply`, expiration des tours via `tick`, changements de contrôleur via `changeController` et rafraîchissement du temps publié via `refreshClock`. Les échéances de tour sont créées par les transitions du moteur ; une vue ne doit jamais les inventer.
+
+La session est le point d'entrée de l'application : elle crée/remplace la partie, appelle le moteur, aligne le lobby après un changement de contrôleur, publie l'état et programme les bots. `receiveState` installe un snapshot chez l'invité ; `dispatch`, `afterChange` et `changeController` ne lui permettent pas d'appliquer les transitions hôte.
+
+Les vues lisent la partie et ne modifient que l'état de présentation (animations, sélection, horloge interpolée). Le réseau décode les messages puis appelle la session. Les transitions de connexion effacent les événements transitoires précédents pour éviter leur rejeu ; elles conservent les propriétés, l'or et les échéances. Les changements de contrôleur ne sont pas des actions accessibles via `apply`.
+
+Le lobby avant lancement et les préférences visuelles restent gérés par leurs contrôleurs. Les tests de rendu et de réception acceptent un état de partie gelé pour détecter les écritures accidentelles.
