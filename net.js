@@ -1,8 +1,5 @@
-/* ============================================================
-   TAVERN TOUR — couche réseau pair-à-pair (PeerJS / WebRTC)
-   L'hôte fait autorité : il reçoit les actions, fait tourner le
-   moteur et renvoie l'état complet à tout le monde.
-   ============================================================ */
+// Couche réseau pair-à-pair (PeerJS / WebRTC).
+// L'hôte fait autorité : il reçoit les actions, fait tourner le moteur et renvoie l'état complet.
 (function (global) {
   'use strict';
 

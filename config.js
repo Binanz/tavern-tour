@@ -1,10 +1,5 @@
-/* ============================================================
-   TAVERN TOUR — Configuration du plateau et des règles
-   ------------------------------------------------------------
-   Modifie librement les noms (name / short), les types (group),
-   les prix et les cartes Chance ici. Les montants sont en or.
-   Noms des serviteurs : pool Battlegrounds actuel, version FR.
-   ============================================================ */
+// Plateau et règles. Les montants sont en or.
+// Noms des serviteurs : pool Battlegrounds actuel, version FR.
 (function (global) {
   'use strict';
 

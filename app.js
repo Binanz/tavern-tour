@@ -1,6 +1,4 @@
-/* ============================================================
-   TAVERN TOUR — interface, animations, orchestration réseau
-   ============================================================ */
+// Interface, animations et orchestration réseau.
 (function () {
   'use strict';
 
@@ -47,9 +45,7 @@
     } else if (app.mode === 'client' && app.lastHostSeen && now - app.lastHostSeen > 12000) scheduleHostLost();
   }, 3000);
 
-  // ============================================================
   // Sons (procéduraux, Web Audio)
-  // ============================================================
   let actx = null;
   function audio() {
     if (app.muted) return null;
@@ -84,9 +80,7 @@
     land: () => { tone(300, 0.08, 'triangle', 0.08); tone(420, 0.12, 'triangle', 0.06, 0.04); },
   };
 
-  // ============================================================
   // Utilitaires UI
-  // ============================================================
   function toast(msg, ms) {
     const t = $('toast'); t.textContent = msg; t.hidden = false;
     clearTimeout(toast._t); toast._t = setTimeout(() => (t.hidden = true), ms || 2600);
@@ -109,7 +103,7 @@
   // format compact pour les cases : 540 k, 1,05 M
   const fmtShort = (n) => (n >= 1e6 ? (Math.round(n / 10000) / 100).toLocaleString('fr-FR') + ' M' : Math.round(n / 1000).toLocaleString('fr-FR') + ' k');
 
-  // ---- effets visuels : nombres flottants, flashs ----
+  // Effets visuels
   function floatMoney(x, y, amount, big) {
     const el = document.createElement('div');
     el.className = 'fx-money ' + (amount >= 0 ? 'gain' : 'loss') + (big ? ' big' : '');
@@ -149,9 +143,7 @@
     SFX.turn();
   }
 
-  // ============================================================
   // Accueil / lobby
-  // ============================================================
   function initHome() {
     const picker = $('tokenPicker');
     TOKENS.forEach((tk, i) => {
@@ -217,7 +209,7 @@
       onJoin: () => {},
       onLeave: (id) => onPeerLeft(id),
       onMessage: (from, msg) => hostOnMessage(from, msg),
-      onError: (msg) => { setNetStatus(msg, true); $('btnHost').disabled = false; if (!app.lobby || !app.lobby.started) { /* reste à l'accueil */ } },
+      onError: (msg) => { setNetStatus(msg, true); $('btnHost').disabled = false; },
     });
     try { app.net.host(code); } catch (e) { setNetStatus(e.message, true); $('btnHost').disabled = false; app.mode = null; }
   }
@@ -359,7 +351,7 @@
     else toast('Code : ' + code);
   }
 
-  // --- messages côté hôte ---
+  // Messages reçus par l'hôte
   function hostOnMessage(from, msg) {
     if (!msg || typeof msg !== 'object') return;
     app.lastSeen[from] = Date.now();
@@ -459,7 +451,7 @@
     }
   }
 
-  // --- messages côté invité ---
+  // Messages reçus par l'invité
   function clientOnMessage(msg) {
     if (!msg || typeof msg !== 'object') return;
     clearTimeout(app.hostLostTimer); app.hostLostTimer = null;
@@ -517,9 +509,7 @@
     openModal(`<h2>Connexion perdue</h2><p>L’hôte a quitté la partie ou la connexion a été coupée. Si l’hôte revient, rejoignez à nouveau avec le code de la salle.</p><div class="btn-row"><button class="btn primary" onclick="location.reload()">Retour à l’accueil</button></div>`, { noClose: true });
   }
 
-  // ============================================================
   // Lancement et boucle de jeu (hôte / local)
-  // ============================================================
   function startGame() {
     const L = app.lobby;
     const players = L.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot, peerId: p.peerId }));
@@ -610,9 +600,7 @@
     else dispatch(app.myIdx, action, 'me');
   }
 
-  // ============================================================
   // Rendu
-  // ============================================================
   function showGame() {
     if (app.gameShown) return;
     app.gameShown = true;
@@ -1035,9 +1023,7 @@
     el.querySelectorAll('.lvl[data-houses]').forEach((b) => (b.onclick = () => { act({ type: t.step === 'buy' ? 'buy' : 'build', houses: +b.dataset.houses }); }));
   }
 
-  // ============================================================
   // Interactions plateau
-  // ============================================================
   function onTileClick(i) {
     const s = app.state; if (!s) return;
     const me = app.myIdx; const myTurn = s.current === me && s.phase === 'playing';
@@ -1150,7 +1136,6 @@
       <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-close>Compris</button></div></div>`);
   }
 
-  // ============================================================
   initHome();
   window.TT_DEBUG = Object.assign(app, { dispatch, afterChange, E });
 })();

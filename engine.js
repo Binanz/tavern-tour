@@ -1,8 +1,4 @@
-/* ============================================================
-   TAVERN TOUR — Moteur de règles (pur, sans DOM)
-   Fonctionne dans le navigateur (window.TT_ENGINE) et dans Node
-   (module.exports) pour les simulations.
-   ============================================================ */
+// Moteur de règles, sans DOM. Tourne dans le navigateur (window.TT_ENGINE) et dans Node (sim.js).
 (function (global) {
   'use strict';
 
@@ -79,7 +75,7 @@
   const ev = (state, e) => state.events.push(e);
   const fmt = (n) => n.toLocaleString('fr-FR');
 
-  // ---------- Valeurs ----------
+  // Valeurs
   function ownsGroup(state, pIdx, group) {
     for (let i = 0; i < N; i++) {
       if (BOARD[i].type === 'property' && BOARD[i].group === group && state.tiles[i].owner !== pIdx) return false;
@@ -111,7 +107,7 @@
     const b = BOARD[i]; const t = state.tiles[i];
     return b.type === 'property' && t.owner !== null && t.owner !== pIdx && t.houses < HOTEL && !state.players[t.owner].bankrupt && state.players[pIdx].cash >= buyoutPrice(state, i);
   }
-  // Property purchases start at Tavern 1; bare properties are not a game level.
+  // Un achat commence à la Taverne 1 : une case nue n'est pas un niveau de jeu.
   function buyOptions(state, pIdx, i) {
     const b = BOARD[i]; const p = state.players[pIdx];
     if (b.type !== 'property') return [{ houses: 0, cost: b.price, locked: false, affordable: p.cash >= b.price }];
@@ -191,7 +187,7 @@
     return state.players.map((p, i) => (p.bankrupt ? -1 : i)).filter((i) => i >= 0);
   }
 
-  // ---------- Argent ----------
+  // Argent
   // Retourne true si payé, false si le joueur passe en dette.
   function pay(state, pIdx, amount, toIdx, reason) {
     const p = state.players[pIdx];
@@ -223,7 +219,7 @@
     return true;
   }
 
-  // ---------- Déplacements ----------
+  // Déplacements
   function sendToJail(state, pIdx) {
     const p = state.players[pIdx];
     ev(state, { type: 'move', player: pIdx, from: p.pos, to: 10, teleport: true });
@@ -419,7 +415,7 @@
     return [1 + Math.floor(rng() * 6), 1 + Math.floor(rng() * 6)];
   }
 
-  // ---------- Fin de partie ----------
+  // Fin de partie
   function endGame(state, reason) {
     state.phase = 'ended';
     state.remainingMs = 0;
@@ -571,7 +567,7 @@
     beginAuction(state, pIdx, now == null ? Date.now() : now);
   }
 
-  // ---------- Actions ----------
+  // Actions
   const ERR = (m) => ({ ok: false, error: m });
   const OK = { ok: true };
 
@@ -872,7 +868,7 @@
     return false;
   }
 
-  // ---------- Bot ----------
+  // Bot
   function botAction(state, pIdx) {
     const p = state.players[pIdx];
     const t = state.turn;
