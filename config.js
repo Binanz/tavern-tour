@@ -19,10 +19,10 @@
     taxA: 200000,              // Impôt (case 4)
     taxB: 100000,              // Taxe de luxe (case 38)
     sellRatio: 0.5,            // revente à la banque = 50 % de la valeur
-    buyoutMult: 2,             // racheter la case d'un adversaire = 2x ce qu'il a investi
+    buyoutMult: 1.25,          // racheter une propriété = 125 % de sa valeur d'achat
     hotelCostMult: 2,          // le serviteur doré coûte 2 niveaux de taverne
     maxHouses: 4,              // 4 niveaux de taverne, puis le serviteur doré
-    lockedHousesBeforeLap: 3,  // les niveaux 3 et 4 sont disponibles après un passage par la Taverne
+    lockedHousesBeforeLap: 4,  // la Taverne 4 est disponible après un passage par la Taverne
     durationsMin: [10, 15, 20, 30],
     defaultDurationMin: 20,
     maxPlayers: 4,

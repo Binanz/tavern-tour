@@ -70,7 +70,11 @@ h1, h2, h3 { font-family: var(--font-display); margin: 0; letter-spacing: 0.02em
   border-bottom: 2px solid var(--gold-dim);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
-.brand { font-family: var(--font-display); font-weight: 700; font-size: 20px; color: var(--gold-2); display: flex; align-items: center; gap: 10px; }
+.topbar.game-ended { z-index: 51; }
+.brand { border: 0; padding: 0; background: none; font-family: var(--font-display); font-weight: 700; font-size: 20px; color: var(--gold-2); display: flex; align-items: center; gap: 10px; text-align: left; }
+.brand:disabled { opacity: 1; cursor: default; }
+.brand:not(:disabled) { position: relative; z-index: 51; cursor: pointer; }
+.brand:not(:disabled):hover { color: var(--cream); }
 .brand-gem { width: 12px; height: 12px; transform: rotate(45deg); background: linear-gradient(135deg, var(--gold-2), var(--gold-dim)); box-shadow: 0 0 10px rgba(243, 217, 139, 0.6); }
 .topbar-center { display: flex; justify-content: center; }
 .timer {
@@ -264,6 +268,7 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 /* centre du plateau */
 .center {
   grid-column: 2 / 11; grid-row: 2 / 11; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.2em;
+  font-size: clamp(12px, calc(var(--size) / 68), 16px);
   background:
     radial-gradient(ellipse at 50% 30%, rgba(217, 179, 90, 0.12), transparent 60%),
     linear-gradient(180deg, #2c1a0b, #1b0f05);
@@ -287,6 +292,10 @@ input:focus, select:focus { border-color: var(--gold-2); box-shadow: 0 0 0 3px r
 .action-panel .prompt small { display: block; color: var(--cream-dim); font-size: 0.8em; margin-top: 0.3em; }
 .action-panel .btn { font-size: 1.05em; padding: 0.75em 1.5em; }
 .action-panel .btn.big { font-size: 1.25em; padding: 0.8em 2em; }
+.order-results { display: grid; gap: 0.35em; width: min(100%, 28em); }
+.order-result { display: flex; justify-content: space-between; gap: 1em; padding: 0.35em 0.7em; border: 1px solid rgba(217, 179, 90, 0.25); border-radius: 0.5em; background: rgba(0, 0, 0, 0.25); font-size: 0.95em; color: var(--cream-dim); }
+.order-result b { color: var(--gold-2); }
+.order-result.rolling { border-color: var(--gold); color: var(--cream); }
 .championship-note { position: absolute; bottom: 1em; left: 1em; right: 1em; font-size: 1.05em; color: var(--gold-2); }
 .turn-banner.mine { color: var(--gold-2); font-weight: 700; font-size: 1.6em; animation: pulse 1.4s infinite; }
 @keyframes pulse { 50% { opacity: 0.75; } }

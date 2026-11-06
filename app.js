@@ -180,6 +180,7 @@
     $('nameInput').addEventListener('input', () => { if (app.lobby && !app.lobby.started) $('lobbyProfileHint').textContent = ''; });
     $('btnCopy').onclick = copyCode;
     $('btnRules').onclick = showRules;
+    $('brandHome').onclick = returnHome;
     $('btnMute').onclick = () => { app.muted = !app.muted; $('btnMute').setAttribute('aria-pressed', String(app.muted)); if (!app.muted) SFX.coin(); };
     window.addEventListener('resize', () => { if (app.state) positionAllPawns(); });
   }
@@ -447,6 +448,8 @@
   }
 
   function launch(players, durationMin) {
+    $('brandHome').disabled = true;
+    document.querySelector('.topbar').classList.remove('game-ended');
     app.state = E.createGame(players, { durationMin });
     app.state.players.forEach((p, i) => { if (players[i].peerId) p.peerId = players[i].peerId; });
     app.displayedPos = app.state.players.map(() => 0);
@@ -476,7 +479,7 @@
 
   function afterChange() {
     const s = app.state;
-    s.remainingMs = Math.max(0, s.endsAt - Date.now());
+    s.remainingMs = s.ordering ? s.durationMs : Math.max(0, s.endsAt - Date.now());
     if (app.mode === 'host' && app.net) {
       s.players.forEach((p, i) => { if (p.peerId && p.peerId !== 'host') app.net.sendTo(p.peerId, { type: 'state', state: s, yourIdx: i }); });
     }
@@ -502,7 +505,7 @@
     if (!p.isBot) return;
     const a = E.botAction(s, s.current);
     if (!a) return;
-    const base = { roll: 1300, jailRoll: 1300, endTurn: 1100, sell: 800, buy: 1200, build: 1200 }[a.type] || 1000;
+    const base = { orderRoll: 1300, roll: 1300, jailRoll: 1300, endTurn: 1100, sell: 800, buy: 1200, build: 1200 }[a.type] || 1000;
     app.botTimer = setTimeout(() => dispatch(s.current, a, null), base + app.animDelay);
   }
 
@@ -669,7 +672,7 @@
     }
     app.prevCash = s.players.map((p) => p.cash);
     // début de mon tour
-    const myTurnNow = s.current === app.myIdx && s.phase === 'playing';
+    const myTurnNow = !s.ordering && s.current === app.myIdx && s.phase === 'playing';
     if (myTurnNow && (app.prevCurrent !== s.current || app.prevTurnCount !== s.turnCount)) setTimeout(showTurnOverlay, app.animDelay);
     app.prevCurrent = s.current; app.prevTurnCount = s.turnCount;
     const board = $('board'); board.classList.toggle('myturn', myTurnNow); board.style.setProperty('--mycolor', s.players[app.myIdx] ? s.players[app.myIdx].color : '#f3d98b');
@@ -684,7 +687,9 @@
   }
 
   function renderTimer() {
-    const rem = Math.max(0, app.sync.remainingMs - (Date.now() - app.sync.at));
+    const rem = app.state && app.state.ordering
+      ? app.state.remainingMs
+      : Math.max(0, app.sync.remainingMs - (Date.now() - app.sync.at));
     const m = Math.floor(rem / 60000), sec = Math.floor((rem % 60000) / 1000);
     const el = $('timer');
     el.textContent = `${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
@@ -695,7 +700,9 @@
   function renderPlayers() {
     const s = app.state;
     const wrap = $('players'); wrap.innerHTML = '';
-    s.players.forEach((p, i) => {
+    const order = s.turnOrder || s.players.map((_, i) => i);
+    order.forEach((i) => {
+      const p = s.players[i];
       const card = document.createElement('div');
       card.className = 'player-card' + (s.current === i && s.phase === 'playing' ? ' current' : '') + (p.bankrupt ? ' bankrupt' : '');
       card.style.setProperty('--pc', p.color);
@@ -807,6 +814,23 @@
     const me = app.myIdx; const p = s.players[s.current]; const t = s.turn;
     const myTurn = s.current === me && s.phase === 'playing';
     if (s.phase === 'ended') { banner.innerHTML = 'Partie terminée'; banner.classList.remove('mine'); el.innerHTML = `<div class="btn-row"><button class="btn primary" id="btnShowEnd">Voir le classement</button></div>`; $('btnShowEnd').onclick = showEnd; return; }
+    if (s.ordering) {
+      banner.innerHTML = `Définition de l’ordre · manche ${s.ordering.round}`;
+      banner.classList.toggle('mine', myTurn);
+      const results = s.players.map((player, i) => {
+        const roll = s.ordering.rolls[i];
+        const score = roll ? `${roll.dice[0]} + ${roll.dice[1]} <b>= ${roll.total}</b>` : 'À lancer';
+        return `<div class="order-result${s.current === i ? ' rolling' : ''}"><span>${player.token} ${esc(player.name)}</span><span>${score}</span></div>`;
+      }).join('');
+      const prompt = pending
+        ? `<div class="prompt muted">${esc(p.name)} lance les dés…</div>`
+        : myTurn
+          ? `<div class="prompt">Lancez les dés pour déterminer l’ordre de passage.<small>En cas d’égalité, les joueurs concernés relancent.</small></div><button class="btn primary big" data-act="orderRoll">🎲 Lancer les dés</button>`
+          : `<div class="prompt muted">${esc(p.name)}${p.isBot ? ' (bot)' : ''} lance les dés…</div>`;
+      el.innerHTML = `<div class="order-results">${results}</div>${prompt}`;
+      el.querySelectorAll('[data-act]').forEach((button) => (button.onclick = () => { act({ type: button.dataset.act }); }));
+      return;
+    }
     banner.innerHTML = myTurn ? `À vous de jouer, <b>${esc(p.name)}</b>` : `Au tour de <b>${esc(p.name)}</b>${p.isBot ? ' (bot)' : ''}`;
     banner.classList.toggle('mine', myTurn);
     if (pending) { el.innerHTML = `<div class="prompt muted">…</div>`; return; }
@@ -840,7 +864,7 @@
       }
       case 'buyout': {
         const i = t.offer; const owner = s.players[s.tiles[i].owner]; const price = t.buyoutPrice || E.buyoutPrice(s, i);
-        html = `${payNoteHTML(s, lastPay)}${offerCardHTML(i)}<div class="prompt" style="font-size:1em">Racheter ${esc(BOARD[i].name)} à <b style="color:${owner.color}">${esc(owner.name)}</b> ?<small>${RULES.buyoutMult}x ce qu’il a investi (${fmt(E.tileValue(s, i))}). L’or lui est versé, les niveaux restent.</small></div>
+        html = `${payNoteHTML(s, lastPay)}${offerCardHTML(i)}<div class="prompt" style="font-size:1em">Racheter ${esc(BOARD[i].name)} à <b style="color:${owner.color}">${esc(owner.name)}</b> ?<small>125 % du prix d’achat initial (${fmt(E.tileValue(s, i))}). L’or lui est versé, les niveaux restent.</small></div>
           <div class="btn-row"><button class="btn primary" data-act="buyout" ${meP.cash < price ? 'disabled' : ''}>Racheter — ${fmt(price)}</button><button class="btn" data-act="skipBuyout">Passer</button></div>`;
         break;
       }
@@ -897,7 +921,7 @@
       const owner = t.owner !== null ? s.players[t.owner] : null;
       html += `<p>${GROUPS[b.group].label} · Prix ${fmt(b.price)} · Niveau de taverne ${fmt(GROUPS[b.group].houseCost)} · Serviteur doré ${fmt(GROUPS[b.group].houseCost * RULES.hotelCostMult)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${s.championship && s.championship.tile === i ? ` · 🏆 Championnats x${s.championship.mult}` : ''}</p>`;
       html += '<table>' + b.rents.map((r, k) => k === 0 ? '' : `<tr class="${owner && t.houses === k ? 'now' : ''}"><td>${LEVEL_LABELS[k]} <small class="muted">(+${fmt(E.levelCost(i, 0, k))})</small></td><td>${fmt(r)}</td></tr>`).join('') + '</table>';
-      if (owner && t.owner !== me) html += `<p>${t.houses === E.HOTEL ? 'Serviteur doré : cette case ne peut pas être rachetée.' : `Rachat possible en y tombant : <b>${fmt(E.buyoutPrice(s, i))}</b> (${RULES.buyoutMult}x l’investissement de ${esc(owner.name)}).`}</p>`;
+      if (owner && t.owner !== me) html += `<p>${t.houses === E.HOTEL ? 'Serviteur doré : cette case ne peut pas être rachetée.' : `Rachat possible en y tombant : <b>${fmt(E.buyoutPrice(s, i))}</b> (125 % du prix d’achat initial de ${esc(owner.name)}).`}</p>`;
     } else if (b.type === 'station') {
       const owner = t.owner !== null ? s.players[t.owner] : null;
       html += `<p>Serviteur neutre · Prix ${fmt(b.price)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}</p><table>${RULES.stationRents.map((r, k) => `<tr class="${owner && E.countOwned(s, t.owner, 'station') === k + 1 ? 'now' : ''}"><td>${k + 1} serviteur${k ? 's' : ''} neutre${k ? 's' : ''}</td><td>${fmt(r)}</td></tr>`).join('')}</table>`;
@@ -935,6 +959,8 @@
 
   function showEnd() {
     const s = app.state; if (!s || !s.ranking) return;
+    $('brandHome').disabled = false;
+    document.querySelector('.topbar').classList.add('game-ended');
     const isHost = app.mode !== 'client';
     const reason = s.endReason === 'time' ? 'Le chrono a sonné !' : 'Tous les adversaires ont fait faillite !';
     const list = s.ranking.map((r, k) => `<li><span class="rk">${k + 1}</span><span class="tk">${r.token}</span><span class="nm">${esc(r.name)}${r.bankrupt ? '<small>Faillite</small>' : `<small>${r.props} case${r.props > 1 ? 's' : ''} · ${fmt(r.cash)} en or</small>`}</span><span class="wt">${r.bankrupt ? '—' : fmt(r.worth)}</span></li>`).join('');
@@ -944,10 +970,38 @@
     if (ab) ab.onclick = () => { closeModal(); const players = s.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot, peerId: p.peerId })); launch(players, app.lobby ? app.lobby.durationMin : RULES.defaultDurationMin); };
   }
 
+  function returnHome() {
+    if (!app.state || app.state.phase !== 'ended') return;
+    closeModal();
+    clearTimeout(app.botTimer); clearTimeout(app.actionTimer); clearTimeout(app.autoEndTimer);
+    clearInterval(app.tickTimer);
+    clearTimeout(app.hostLostTimer);
+    if (app.net) app.net.destroy();
+    app.net = null; app.mode = null; app.lobby = null; app.state = null;
+    app.gameShown = false;
+    app.displayedPos = []; app.pawnQueue = []; app.pawnBusy = [];
+    app.prevCash = null; app.prevCurrent = -1; app.prevTurnCount = 0;
+    app.sync = { remainingMs: RULES.defaultDurationMin * 60000, at: Date.now() };
+    $('timer').textContent = `${String(RULES.defaultDurationMin).padStart(2, '0')}:00`;
+    $('timer').classList.remove('urgent');
+    $('screen-game').hidden = true;
+    $('screen-home').hidden = false;
+    $('brandHome').disabled = true;
+    document.querySelector('.topbar').classList.remove('game-ended');
+    $('roomChip').hidden = true;
+    $('lobbyPanel').hidden = true;
+    $('modesPanel').hidden = false;
+    $('btnSaveLobbyProfile').hidden = true;
+    $('lobbyProfileHint').textContent = '';
+    $('tokenPicker').querySelectorAll('.token-btn').forEach((button) => { button.disabled = false; });
+    $('btnHost').disabled = false; $('btnJoin').disabled = false;
+    setNetStatus('');
+  }
+
   function showRules() {
     openModal(`<div class="rules"><h2>Règles de la taverne</h2>
       <h3>But</h3><ul><li>Quand le chrono sonne, le joueur le plus riche gagne : or + valeur des cases et constructions.</li><li>La partie s’arrête aussi si tous les autres joueurs font faillite.</li></ul>
-      <h3>Tour de jeu</h3><ul><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue. Le tour passe automatiquement au suivant.</li><li><b>Case libre</b> : achetez-la directement avec une Taverne de niveau 1 à 4. Les Tavernes 3 et 4 se débloquent après un premier passage par la Taverne.</li><li><b>Case à vous</b> : améliorez-la jusqu’à Taverne 4, puis en Serviteur doré, pour le loyer maximal. Le Serviteur doré rend la case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour ${RULES.buyoutMult}x ce que son propriétaire a investi (sauf Serviteur doré). L’or lui est versé et les niveaux restent.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li></ul>
+      <h3>Tour de jeu</h3><ul><li>Au début, chacun lance les dés pour déterminer l’ordre de passage ; les égalités sont départagées par un nouveau lancer.</li><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue. Le tour passe automatiquement au suivant.</li><li><b>Case libre</b> : achetez-la directement avec une Taverne de niveau 1 à 4. Seule la Taverne 4 est bloquée jusqu’à un premier passage par la Taverne.</li><li><b>Case à vous</b> : améliorez-la jusqu’à Taverne 4, puis en Serviteur doré, pour le loyer maximal. Le Serviteur doré rend la case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour 125 % de sa valeur d’achat (sauf Serviteur doré). L’or lui est versé et les niveaux restent.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li></ul>
       <h3>Cases spéciales</h3><ul><li><b>Chance</b> : tirez une carte (gains, pertes, déplacements, carte de sortie…).</li><li><b>Île perdue</b> : payez ${fmt(RULES.jailFee)} ou faites un double pour partir (3 essais).</li><li><b>Championnats</b> : pour ${fmt(RULES.championshipFee)}, le loyer d’une de vos cases est multiplié (x2, x3… jusqu’à x${RULES.championshipMaxMult}).</li><li><b>Tour du monde</b> : pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous ; si vous passez par la Taverne, vous touchez les ${fmt(RULES.salary)}.</li><li><b>Serviteurs neutres</b> (Brann, Drakkari, Titus, Leeroy) : loyer de ${fmt(RULES.stationRents[0])} à ${fmt(RULES.stationRents[3])} selon le nombre possédé. Ni niveaux de taverne ni rachat.</li><li><b>Services</b> (Sombre Don, Bibelot) : loyer = dés x ${fmt(RULES.utilityMult[0])}, ou x ${fmt(RULES.utilityMult[1])} avec les deux.</li></ul>
       <h3>Dettes</h3><ul><li>Si vous ne pouvez pas payer, revendez vos niveaux de taverne puis vos propriétés à la banque à 50 % de leur valeur. Sinon, faillite : vos biens vont au créancier.</li></ul>
       <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-close>Compris</button></div></div>`);

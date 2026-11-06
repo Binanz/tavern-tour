@@ -27,6 +27,18 @@ function checkInvariants(state, ctx) {
   if (!isFinite(total)) throw new Error('total NaN');
 }
 
+function createStartedGame(players, opts, now) {
+  const state = E.createGame(players, opts, mulberry32(42), now);
+  const diceByPlayer = [[0.99, 0.99], [0.8, 0.8], [0.6, 0.6], [0.4, 0.4]];
+  while (state.ordering) {
+    const dice = diceByPlayer[state.current];
+    let roll = 0;
+    const result = E.apply(state, state.current, { type: 'orderRoll' }, () => dice[roll++], now || Date.now());
+    if (!result.ok) throw new Error('tirage de l’ordre refusé: ' + result.error);
+  }
+  return state;
+}
+
 function runGame(seed, durationMin, verbose) {
   const rng = mulberry32(seed);
   let now = 1000;
@@ -78,7 +90,19 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   const rng = mulberry32(42);
   const RULES = CFG.RULES;
   if (CFG.BOARD.some((tile) => tile.type === 'property' && tile.rents.length !== E.HOTEL + 1)) throw new Error('chaque propriété doit avoir un loyer pour chaque niveau');
-  const st = E.createGame([{ name: 'A' }, { name: 'B' }], { durationMin: 20 }, rng, 0);
+  const orderGame = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 1000);
+  const orderDuration = orderGame.remainingMs;
+  if (E.tick(orderGame, 100000000) || orderGame.remainingMs !== orderDuration) throw new Error('le chrono ne doit pas démarrer pendant le tirage de l’ordre');
+  E.apply(orderGame, 0, { type: 'orderRoll' }, () => 0, 1000);
+  E.apply(orderGame, 1, { type: 'orderRoll' }, () => 0, 1000);
+  if (!orderGame.ordering || orderGame.ordering.round !== 2 || orderGame.ordering.pending.join(',') !== '0,1') throw new Error('les joueurs à égalité doivent relancer');
+  E.apply(orderGame, 0, { type: 'orderRoll' }, (() => { const values = [0.99, 0.99]; return () => values.shift(); })(), 1500);
+  E.apply(orderGame, 1, { type: 'orderRoll' }, (() => { const values = [0, 0.2]; return () => values.shift(); })(), 2000);
+  if (orderGame.ordering || orderGame.turnOrder.join(',') !== '0,1' || orderGame.current !== 0 || orderGame.startedAt !== 2000) throw new Error('résolution de l’ordre de passage incorrecte');
+  orderGame.turn.step = 'done';
+  E.apply(orderGame, 0, { type: 'endTurn' }, rng, 3000);
+  if (orderGame.current !== 1) throw new Error('le tour suivant ne respecte pas l’ordre déterminé');
+  const st = createStartedGame([{ name: 'A' }, { name: 'B' }], { durationMin: 20 }, 0);
   st.tiles[39].owner = 1; st.tiles[39].houses = E.HOTEL;
   st.tiles[37].owner = 1;
   st.players[0].cash = 500000; st.players[0].pos = 38;
@@ -97,7 +121,7 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (st.ranking[0].name !== 'B') throw new Error('B devrait gagner');
 
   // Loyers : groupe complet doublé + championnat ; gares ; services
-  const s2 = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 0);
+  const s2 = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
   s2.tiles[37].owner = 1; s2.tiles[39].owner = 1;
   if (E.computeRent(s2, 37, 7) !== CFG.BOARD[37].rents[0] * 2) throw new Error('loyer doublé attendu');
   s2.championship = { tile: 37, mult: 3 };
@@ -108,13 +132,14 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (E.computeRent(s2, 12, 9) !== 9 * RULES.utilityMult[0]) throw new Error('loyer service attendu');
   if (E.apply(s2, 1, { type: 'roll' }, rng, 0).ok) throw new Error('B ne doit pas pouvoir jouer');
 
-  // Achat à plusieurs niveaux : Taverne 3 et 4 verrouillées avant un tour de plateau
-  const s3 = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 0);
+  // Achat à plusieurs niveaux : seule Taverne 4 est verrouillée avant un tour de plateau
+  const s3 = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
   s3.players[0].pos = 37; // 1+1 => 39 Kalecgos libre
   E.apply(s3, 0, { type: 'roll' }, () => 0.0, 0);
   if (s3.turn.step !== 'buy') throw new Error('achat attendu');
-  if (E.apply(s3, 0, { type: 'buy', houses: 3 }, rng, 0).ok) throw new Error('Taverne 3 devrait être verrouillée au premier tour');
-  if (E.apply(s3, 0, { type: 'buy', houses: 4 }, rng, 0).ok) throw new Error('Taverne 4 devrait être verrouillée au premier tour');
+  if (E.buyOptions(s3, 0, 39).find((option) => option.houses === 3).locked) throw new Error('Taverne 3 devrait être disponible au premier tour');
+  if (!E.buyOptions(s3, 0, 39).find((option) => option.houses === 4).locked) throw new Error('Taverne 4 devrait être verrouillée au premier tour');
+  if (E.apply(s3, 0, { type: 'buy', houses: 4 }, rng, 0).ok) throw new Error('achat de Taverne 4 accepté au premier tour');
   const hc = CFG.GROUPS.dragon.houseCost;
   const purchaseOptions = E.buyOptions(s3, 0, 39);
   if (purchaseOptions.map((option) => option.houses).join(',') !== '1,2,3,4') throw new Error('achat doit commencer à Taverne 1');
@@ -123,14 +148,14 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (s3.players[0].cash !== 2000000 - 400000 - 2 * hc) throw new Error('prix achat 2 Tavernes incorrect: ' + s3.players[0].cash);
   if (s3.tiles[39].houses !== 2) throw new Error('Taverne 2 attendue');
   if (E.tileValue(s3, 39) !== 400000 + 2 * hc) throw new Error('valeur case incorrecte');
-  // Rachat par B : loyer puis rachat 2x la valeur ; Serviteur doré non rachetable
+  // Rachat par B : loyer puis rachat à 125 % de la valeur ; Serviteur doré non rachetable
   s3.current = 1; s3.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
   s3.players[1].pos = 37; s3.players[1].cash = 3000000;
   E.apply(s3, 1, { type: 'roll' }, () => 0.0, 0); // tombe sur Kalecgos (Taverne 2)
   const rent = CFG.BOARD[39].rents[2];
   if (s3.turn.lastPay.amount !== rent) throw new Error('loyer Taverne 2 attendu: ' + JSON.stringify(s3.turn.lastPay));
   if (s3.turn.step !== 'buyout') throw new Error('étape rachat attendue, step=' + s3.turn.step);
-  const price = (400000 + 2 * hc) * RULES.buyoutMult;
+  const price = Math.round((400000 + 2 * hc) * 1.25);
   if (s3.turn.buyoutPrice !== price) throw new Error('prix de rachat incorrect');
   const cashA = s3.players[0].cash, cashB = s3.players[1].cash;
   if (!E.apply(s3, 1, { type: 'buyout' }, rng, 0).ok) throw new Error('rachat refusé');
@@ -139,7 +164,7 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   // Construction : niveaux 3 et 4 verrouillés avant un tour ; Serviteur doré après Taverne 4
   s3.turn = { step: 'roll', doubles: 0, dice: null, isDouble: false, debt: null, offer: null, lastPay: null };
   s3.players[1].pos = 37;
-  if (!E.buildOptions(s3, 1, 39).every((o) => o.locked) || E.canBuild(s3, 1, 39)) throw new Error('Tavernes 3 et 4 verrouillées avant un tour');
+  if (E.buildOptions(s3, 1, 39).find((o) => o.houses === 3).locked || !E.buildOptions(s3, 1, 39).find((o) => o.houses === 4).locked) throw new Error('seule Taverne 4 doit être verrouillée avant un tour');
   s3.players[1].laps = 1;
   E.apply(s3, 1, { type: 'roll' }, () => 0.0, 0);
   if (s3.turn.step !== 'build') throw new Error('construction attendue, step=' + s3.turn.step);
@@ -163,7 +188,7 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (!E.apply(s3, 1, { type: 'sell', tile: 39 }, rng, 0).ok) throw new Error('revente refusée');
   if (s3.players[1].cash - before !== hc * RULES.hotelCostMult * RULES.sellRatio || s3.tiles[39].houses !== 4) throw new Error('revente Serviteur doré incorrecte');
 
-  const s5 = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 0);
+  const s5 = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
   s5.players[0].pos = 37;
   E.apply(s5, 0, { type: 'roll' }, () => 0.0, 0);
   if (!E.apply(s5, 0, { type: 'buy', houses: 1 }, rng, 0).ok) throw new Error('achat Taverne 1 refusé');
@@ -172,7 +197,7 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (s5.tiles[39].owner !== null || s5.tiles[39].houses !== 0 || s5.players[0].cash - resaleBefore !== Math.floor((CFG.BOARD[39].price + hc) * RULES.sellRatio)) throw new Error('revente Taverne 1 doit libérer la case');
 
   // Tour du monde : toujours vers l'avant, salaire en passant par la Taverne
-  const s4 = E.createGame([{ name: 'A' }, { name: 'B' }], {}, rng, 0);
+  const s4 = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
   s4.players[0].pos = 30; s4.turn.step = 'teleport';
   const c0 = s4.players[0].cash;
   if (!E.apply(s4, 0, { type: 'teleport', tile: 1 }, rng, 0).ok) throw new Error('voyage refusé');

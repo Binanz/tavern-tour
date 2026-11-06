@@ -51,20 +51,22 @@
       players,
       tiles: BOARD.map((t) => (OWNABLE.has(t.type) ? { owner: null, houses: 0 } : null)),
       current: 0,
-      turn: newTurn(),
+      turn: { ...newTurn(), step: 'order' },
+      ordering: { pending: players.map((_, i) => i), rolls: players.map(() => null), round: 1 },
+      turnOrder: players.map((_, i) => i),
       championship: null,
       deck: shuffle(CARDS.map((_, i) => i), rng),
       deckPos: 0,
       log: [],
       events: [],
-      startedAt: now,
+      startedAt: null,
       durationMs,
-      endsAt: now + durationMs,
+      endsAt: null,
       remainingMs: durationMs,
       ranking: null,
-      turnCount: 1,
+      turnCount: 0,
     };
-    log(state, `La partie commence ! ${players[0].name} ouvre le bal.`);
+    log(state, 'Chaque joueur lance les dés pour déterminer l’ordre de passage.');
     return state;
   }
 
@@ -437,8 +439,12 @@
     if (now >= state.endsAt) { endGame(state, 'time'); return; }
     const a = alive(state);
     if (a.length <= 1) { endGame(state, 'bankrupt'); return; }
-    let i = state.current;
-    do { i = (i + 1) % state.players.length; } while (state.players[i].bankrupt);
+    const orderPos = state.turnOrder.indexOf(state.current);
+    let orderIndex = orderPos;
+    do {
+      orderIndex = (orderIndex + 1) % state.turnOrder.length;
+    } while (state.players[state.turnOrder[orderIndex]].bankrupt);
+    const i = state.turnOrder[orderIndex];
     state.current = i;
     state.turnCount++;
     state.turn = newTurn();
@@ -484,6 +490,51 @@
     const t = state.turn;
     if (p.bankrupt) return ERR('Joueur en faillite.');
     if (pIdx !== state.current) return ERR('Ce n’est pas votre tour.');
+
+    if (state.ordering) {
+      if (action.type !== 'orderRoll' || t.step !== 'order') return ERR('Lancez les dés pour déterminer l’ordre de passage.');
+      const d = rollDice(rng);
+      state.ordering.rolls[pIdx] = { dice: d, total: d[0] + d[1] };
+      ev(state, { type: 'dice', player: pIdx, dice: d });
+      log(state, `${p.name} lance ${d[0]} + ${d[1]} : ${d[0] + d[1]} au total.`);
+
+      state.ordering.pending.shift();
+      if (state.ordering.pending.length) {
+        state.current = state.ordering.pending[0];
+        return OK;
+      }
+
+      const tiedPlayers = [];
+      const scoreGroups = new Map();
+      state.ordering.rolls.forEach((roll, i) => {
+        const group = scoreGroups.get(roll.total) || [];
+        group.push(i);
+        scoreGroups.set(roll.total, group);
+      });
+      for (const group of scoreGroups.values()) if (group.length > 1) tiedPlayers.push(...group);
+      if (tiedPlayers.length) {
+        state.ordering.round++;
+        state.ordering.pending = tiedPlayers.sort((a, b) => a - b);
+        state.current = state.ordering.pending[0];
+        log(state, `Égalité : ${state.ordering.pending.map((i) => state.players[i].name).join(', ')}. Ces joueurs relancent les dés.`);
+        return OK;
+      }
+
+      state.turnOrder = state.ordering.rolls
+        .map((roll, i) => ({ i, total: roll.total }))
+        .sort((a, b) => b.total - a.total)
+        .map(({ i }) => i);
+      state.current = state.turnOrder[0];
+      state.ordering = null;
+      state.turn = newTurn();
+      state.turnCount = 1;
+      state.startedAt = now || Date.now();
+      state.endsAt = state.startedAt + state.durationMs;
+      state.remainingMs = state.durationMs;
+      log(state, `Ordre de passage : ${state.turnOrder.map((i) => state.players[i].name).join(' → ')}.`);
+      log(state, `La partie commence ! ${state.players[state.current].name} ouvre le bal.`);
+      return OK;
+    }
 
     switch (action.type) {
       case 'roll': {
@@ -692,7 +743,7 @@
   // Chrono : à appeler régulièrement côté hôte.
   function tick(state, now) {
     now = now || Date.now();
-    if (state.phase !== 'playing') return false;
+    if (state.phase !== 'playing' || state.ordering) return false;
     state.remainingMs = Math.max(0, state.endsAt - now);
     if (now >= state.endsAt) {
       state.events = [];
@@ -707,6 +758,7 @@
     const p = state.players[pIdx];
     const t = state.turn;
     const reserve = 150000;
+    if (state.ordering) return { type: 'orderRoll' };
     switch (t.step) {
       case 'roll': return { type: 'roll' };
       case 'jail':
