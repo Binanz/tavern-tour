@@ -1,15 +1,13 @@
-/* ============================================================
-   TAVERN TOUR — Moteur de règles (pur, sans DOM)
-   Fonctionne dans le navigateur (window.TT_ENGINE) et dans Node
-   (module.exports) pour les simulations.
-   ============================================================ */
+// Moteur de règles, sans DOM. Tourne dans le navigateur (window.TT_ENGINE) et dans Node (sim.js).
 (function (global) {
   'use strict';
 
   const CFG = global.TT_CONFIG || (typeof require !== 'undefined' ? require('./config.js') : null);
   const { RULES, GROUPS, BOARD, CARDS, PLAYER_COLORS } = CFG;
   const N = BOARD.length;
-  const OWNABLE = new Set(['property', 'station', 'utility']);
+  const JAIL_TILE = BOARD.findIndex((tile) => tile.type === 'jail');
+  const OWNABLE = new Set(['property', 'station']);
+  const WINNING_LINES = [[1, 7], [9, 15], [17, 23], [25, 31]];
 
   const isOwnable = (i) => OWNABLE.has(BOARD[i].type);
 
@@ -20,6 +18,19 @@
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
+  }
+
+  function drawFestivalTiles(rng) {
+    const families = new Map();
+    BOARD.forEach((tile, i) => {
+      if (!OWNABLE.has(tile.type)) return;
+      const family = tile.type === 'property' ? tile.group : 'station';
+      if (!families.has(family)) families.set(family, []);
+      families.get(family).push(i);
+    });
+    return shuffle(Array.from(families.values()), rng)
+      .slice(0, 3)
+      .map((tiles) => tiles[Math.floor(rng() * tiles.length)]);
   }
 
   function newTurn() {
@@ -43,6 +54,7 @@
       inJail: false,
       jailTurns: 0,
       jailCards: 0,
+      worldTourPending: false,
       laps: 0,
       bankrupt: false,
     }));
@@ -50,6 +62,7 @@
       phase: 'playing',
       players,
       tiles: BOARD.map((t) => (OWNABLE.has(t.type) ? { owner: null, houses: 0 } : null)),
+      festivalTiles: drawFestivalTiles(rng),
       current: 0,
       turn: { ...newTurn(), step: 'order' },
       ordering: { pending: players.map((_, i) => i), rolls: players.map(() => null), round: 1 },
@@ -69,6 +82,7 @@
       turnCount: 0,
     };
     log(state, 'Chaque joueur lance les dés pour déterminer l’ordre de passage.');
+    log(state, `Festival de la taverne : ${state.festivalTiles.map((i) => BOARD[i].name).join(', ')} ont leur loyer doublé jusqu’à la fin de la partie.`, 'ok');
     return state;
   }
 
@@ -79,7 +93,7 @@
   const ev = (state, e) => state.events.push(e);
   const fmt = (n) => n.toLocaleString('fr-FR');
 
-  // ---------- Valeurs ----------
+  // Valeurs
   function ownsGroup(state, pIdx, group) {
     for (let i = 0; i < N; i++) {
       if (BOARD[i].type === 'property' && BOARD[i].group === group && state.tiles[i].owner !== pIdx) return false;
@@ -109,9 +123,9 @@
   function buyoutPrice(state, i) { return tileValue(state, i) * RULES.buyoutMult; }
   function canBuyout(state, pIdx, i) {
     const b = BOARD[i]; const t = state.tiles[i];
-    return b.type === 'property' && t.owner !== null && t.owner !== pIdx && t.houses < HOTEL && !state.players[t.owner].bankrupt && state.players[pIdx].cash >= buyoutPrice(state, i);
+    return !!t && b.type === 'property' && t.owner !== null && t.owner !== pIdx && t.houses < HOTEL && !state.players[t.owner].bankrupt && state.players[pIdx].cash >= buyoutPrice(state, i);
   }
-  // Property purchases start at Tavern 1; bare properties are not a game level.
+  // Un achat commence à la Taverne 1 : une case nue n'est pas un niveau de jeu.
   function buyOptions(state, pIdx, i) {
     const b = BOARD[i]; const p = state.players[pIdx];
     if (b.type !== 'property') return [{ houses: 0, cost: b.price, locked: false, affordable: p.cash >= b.price }];
@@ -157,18 +171,16 @@
     const b = BOARD[i];
     const t = state.tiles[i];
     const owner = t.owner;
+    let rent = 0;
     if (b.type === 'property') {
-      let r = b.rents[t.houses];
-      if (t.houses === 0 && ownsGroup(state, owner, b.group)) r *= 2;
-      if (state.championship && state.championship.tile === i) r *= state.championship.mult;
-      return r;
+      rent = b.rents[t.houses];
+      if (ownsGroup(state, owner, b.group)) rent *= 2;
+      if (state.championship && state.championship.tile === i) rent *= state.championship.mult;
+    } else if (b.type === 'station') {
+      rent = RULES.stationRents[countOwned(state, owner, 'station') - 1];
     }
-    if (b.type === 'station') return RULES.stationRents[countOwned(state, owner, 'station') - 1];
-    if (b.type === 'utility') {
-      const n = countOwned(state, owner, 'utility');
-      return (diceSum || 7) * RULES.utilityMult[n - 1];
-    }
-    return 0;
+    if (state.festivalTiles && state.festivalTiles.includes(i)) rent *= 2;
+    return rent;
   }
   function canBuild(state, pIdx, i) {
     return buildOptions(state, pIdx, i).some((o) => o.affordable && !o.locked);
@@ -191,7 +203,7 @@
     return state.players.map((p, i) => (p.bankrupt ? -1 : i)).filter((i) => i >= 0);
   }
 
-  // ---------- Argent ----------
+  // Argent
   // Retourne true si payé, false si le joueur passe en dette.
   function pay(state, pIdx, amount, toIdx, reason) {
     const p = state.players[pIdx];
@@ -223,11 +235,11 @@
     return true;
   }
 
-  // ---------- Déplacements ----------
+  // Déplacements
   function sendToJail(state, pIdx) {
     const p = state.players[pIdx];
-    ev(state, { type: 'move', player: pIdx, from: p.pos, to: 10, teleport: true });
-    p.pos = 10;
+    ev(state, { type: 'move', player: pIdx, from: p.pos, to: JAIL_TILE, teleport: true });
+    p.pos = JAIL_TILE;
     p.inJail = true;
     p.jailTurns = 0;
     state.turn.isDouble = false; // pas de relance
@@ -236,7 +248,7 @@
     state.turn.step = 'done';
   }
 
-  function moveTo(state, pIdx, to, opts) {
+  function moveTo(state, pIdx, to, opts, rng) {
     opts = opts || {};
     const p = state.players[pIdx];
     const from = p.pos;
@@ -247,19 +259,22 @@
       let steps = forward > 0 ? (to - from + N) % N : (from - to + N) % N;
       if (steps === 0) steps = N;
       if (!opts.backward && to <= from) {
-        // on passe par la Taverne
-        p.cash += RULES.salary;
+        const salary = RULES.salary * (to === 0 ? 2 : 1);
+        p.cash += salary;
         p.laps++;
-        ev(state, { type: 'salary', player: pIdx, amount: RULES.salary });
-        log(state, `${p.name} passe par la Taverne et reçoit ${fmt(RULES.salary)}.`, 'ok');
+        const startStep = (N - from) % N || N;
+        ev(state, { type: 'salary', player: pIdx, amount: salary, atStep: startStep });
+        log(state, to === 0
+          ? `${p.name} tombe sur la Taverne et reçoit ${fmt(salary)} (gain doublé).`
+          : `${p.name} passe par la Taverne et reçoit ${fmt(salary)}.`, 'ok');
       }
       ev(state, { type: 'move', player: pIdx, from, to, steps, backward: !!opts.backward });
     }
     p.pos = to;
-    landOn(state, pIdx, opts.diceSum);
+    landOn(state, pIdx, opts.diceSum, rng);
   }
 
-  function landOn(state, pIdx, diceSum) {
+  function landOn(state, pIdx, diceSum, rng) {
     const p = state.players[pIdx];
     const i = p.pos;
     const b = BOARD[i];
@@ -267,7 +282,7 @@
     switch (b.type) {
       case 'property':
       case 'station':
-      case 'utility': {
+      {
         if (t.owner === null) {
           if (p.cash >= b.price) {
             state.turn.step = 'buy';
@@ -307,7 +322,7 @@
         if (pay(state, pIdx, b.amount, null, b.name)) finishStep(state);
         break;
       case 'chance':
-        drawCard(state, pIdx);
+        drawCard(state, pIdx, rng);
         break;
       case 'jail':
         sendToJail(state, pIdx);
@@ -322,13 +337,9 @@
         }
         break;
       case 'worldtour':
-        if (teleportTargets(state, pIdx).length && p.cash >= RULES.worldTourFee) {
-          state.turn.step = 'teleport';
-          log(state, `${p.name} ouvre le Portail du Tour du monde (${fmt(RULES.worldTourFee)}).`);
-        } else {
-          log(state, `${p.name} contemple le Portail.`);
-          finishStep(state);
-        }
+        p.worldTourPending = true;
+        log(state, `${p.name} active le Tour du monde pour son prochain tour.`);
+        finishStep(state);
         break;
       default:
         log(state, `${p.name} fait halte à la Taverne.`);
@@ -336,10 +347,11 @@
     }
   }
 
-  function drawCard(state, pIdx) {
+  function drawCard(state, pIdx, rng) {
+    rng = rng || Math.random;
     const p = state.players[pIdx];
     if (state.deckPos >= state.deck.length) {
-      state.deck = shuffle(state.deck, Math.random);
+      state.deck = shuffle(state.deck, rng);
       state.deckPos = 0;
     }
     const card = CARDS[state.deck[state.deckPos++]];
@@ -351,10 +363,10 @@
         else if (pay(state, pIdx, -card.amount, null, 'Carte Chance')) finishStep(state);
         break;
       case 'moveTo':
-        moveTo(state, pIdx, card.tile, {});
+        moveTo(state, pIdx, card.tile, {}, rng);
         break;
       case 'moveBack':
-        moveTo(state, pIdx, (p.pos - card.steps + N) % N, { backward: true });
+        moveTo(state, pIdx, (p.pos - card.steps + N) % N, { backward: true }, rng);
         break;
       case 'jail':
         sendToJail(state, pIdx);
@@ -369,7 +381,7 @@
           const j = (p.pos + k) % N;
           if (BOARD[j].type === 'station') { to = j; break; }
         }
-        moveTo(state, pIdx, to, {});
+        moveTo(state, pIdx, to, {}, rng);
         break;
       }
       case 'perHouse': {
@@ -419,17 +431,39 @@
     return [1 + Math.floor(rng() * 6), 1 + Math.floor(rng() * 6)];
   }
 
-  // ---------- Fin de partie ----------
-  function endGame(state, reason) {
+  // Fin de partie
+  function endGame(state, reason, winnerIdx, winReason) {
     state.phase = 'ended';
     state.remainingMs = 0;
     const ranking = state.players
       .map((p, i) => ({ idx: i, name: p.name, token: p.token, color: p.color, worth: netWorth(state, i), cash: p.cash, bankrupt: p.bankrupt, props: state.tiles.filter((t) => t && t.owner === i).length }))
-      .sort((a, b) => (a.bankrupt !== b.bankrupt ? (a.bankrupt ? 1 : -1) : b.worth - a.worth));
+      .sort((a, b) => (a.idx === winnerIdx ? -1 : b.idx === winnerIdx ? 1 : a.bankrupt !== b.bankrupt ? (a.bankrupt ? 1 : -1) : b.worth - a.worth));
     state.ranking = ranking;
     state.endReason = reason;
-    log(state, `Fin de partie : ${ranking[0].name} l’emporte avec ${fmt(ranking[0].worth)} !`, 'ok');
-    ev(state, { type: 'gameover' });
+    state.winnerIdx = winnerIdx == null ? ranking[0].idx : winnerIdx;
+    state.winReason = winReason || null;
+    const winner = state.players[state.winnerIdx];
+    log(state, `Fin de partie : ${winner.name} l’emporte${winReason ? ` (${winReason})` : ` avec ${fmt(ranking[0].worth)}`} !`, 'ok');
+    ev(state, { type: 'gameover', winner: state.winnerIdx, reason: winReason || reason });
+  }
+
+  function victoryReason(state, pIdx) {
+    if (state.players[pIdx].bankrupt) return null;
+    if (countOwned(state, pIdx, 'station') === BOARD.filter((tile) => tile.type === 'station').length) return 'les quatre cartes neutres';
+    if (WINNING_LINES.some(([from, to]) => {
+      const line = [];
+      for (let i = from; i <= to; i++) if (isOwnable(i)) line.push(i);
+      return line.length > 0 && line.every((i) => state.tiles[i].owner === pIdx);
+    })) return 'toutes les cases achetables d’une ligne';
+    if (Object.keys(GROUPS).filter((group) => ownsGroup(state, pIdx, group)).length >= 3) return 'trois monopoles';
+    return null;
+  }
+
+  function checkVictory(state, pIdx) {
+    const reason = victoryReason(state, pIdx);
+    if (!reason) return false;
+    endGame(state, 'victory', pIdx, reason);
+    return true;
   }
 
   function nextTurn(state, now) {
@@ -449,8 +483,18 @@
     state.turn = newTurn();
     state.turnEndsAt = now + RULES.turnDurationMs;
     const p = state.players[i];
-    if (p.inJail) state.turn.step = 'jail';
     log(state, `— Au tour de ${p.name}${p.inJail ? ' (naufragé sur l’Île perdue)' : ''}.`, 'turn');
+    if (p.inJail) state.turn.step = 'jail';
+    else if (p.worldTourPending) {
+      p.worldTourPending = false;
+      if (teleportTargets(state, i).length && p.cash >= RULES.worldTourFee) {
+        state.turn.step = 'teleport';
+        log(state, `${p.name} utilise son tour pour voyager avec le Portail (${fmt(RULES.worldTourFee)}).`);
+      } else {
+        state.turn.step = 'done';
+        log(state, `${p.name} ne peut pas utiliser le Portail : aucun trajet possible ou pas assez d’or.`);
+      }
+    }
   }
 
   function auctionBidders(state) {
@@ -515,6 +559,7 @@
     state.auction = null;
     state.current = returnTo;
     state.turn = newTurn();
+    for (let i = 0; i < state.players.length; i++) if (checkVictory(state, i)) return;
     nextTurn(state, now);
   }
   function advanceAuction(state, now) {
@@ -571,7 +616,7 @@
     beginAuction(state, pIdx, now == null ? Date.now() : now);
   }
 
-  // ---------- Actions ----------
+  // Actions
   const ERR = (m) => ({ ok: false, error: m });
   const OK = { ok: true };
 
@@ -580,6 +625,11 @@
     now = now == null ? Date.now() : now;
     state.events = [];
     if (state.phase !== 'playing') return ERR('La partie est terminée.');
+    if (!state.ordering && state.endsAt != null && now >= state.endsAt) {
+      state.events = [];
+      endGame(state, 'time');
+      return OK;
+    }
     const p = state.players[pIdx];
     const t = state.turn;
     if (p.bankrupt) return ERR('Joueur en faillite.');
@@ -647,7 +697,7 @@
           sendToJail(state, pIdx);
           return OK;
         }
-        moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] });
+        moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
         return OK;
       }
       case 'jailPay': {
@@ -678,13 +728,13 @@
           p.inJail = false;
           t.isDouble = false;
           log(state, `${p.name} fait un double (${d[0]}+${d[1]}) et s’échappe de l’Île perdue !`, 'ok');
-          moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] });
+          moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
         } else {
           p.jailTurns++;
           if (p.jailTurns >= RULES.jailMaxTurns) {
             p.inJail = false;
             log(state, `${p.name} lance ${d[0]}+${d[1]} : troisième essai, un bateau le récupère enfin.`);
-            moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] });
+            moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
           } else {
             log(state, `${p.name} lance ${d[0]}+${d[1]} : toujours naufragé (${p.jailTurns}/${RULES.jailMaxTurns}).`);
             t.step = 'done';
@@ -706,7 +756,8 @@
         state.tiles[i].houses = h;
         ev(state, { type: 'buy', player: pIdx, tile: i, houses: h });
         log(state, `${p.name} achète ${b.name}${h ? ` au niveau ${h === HOTEL ? 'Serviteur doré' : `Taverne ${h}`}` : ''} pour ${fmt(opt.cost)}.`, 'ok');
-        if (b.type === 'property' && ownsGroup(state, pIdx, b.group)) log(state, `${p.name} contrôle tous les ${GROUPS[b.group].label}s : loyers doublés !`, 'ok');
+        if (b.type === 'property' && ownsGroup(state, pIdx, b.group)) log(state, `${p.name} contrôle tous les ${GROUPS[b.group].label}s : loyers doublés à tous les niveaux !`, 'ok');
+        if (checkVictory(state, pIdx)) return OK;
         finishStep(state);
         return OK;
       }
@@ -745,7 +796,8 @@
         ev(state, { type: 'buyout', player: pIdx, from: prev, tile: i });
         t.lastPay = { from: pIdx, to: prev, amount: price, reason: `Rachat de ${BOARD[i].name}`, tile: i };
         log(state, `${p.name} rachète ${BOARD[i].name} à ${state.players[prev].name} pour ${fmt(price)} !`, 'ok');
-        if (ownsGroup(state, pIdx, BOARD[i].group)) log(state, `${p.name} contrôle tous les ${GROUPS[BOARD[i].group].label}s : loyers doublés !`, 'ok');
+        if (BOARD[i].type === 'property' && ownsGroup(state, pIdx, BOARD[i].group)) log(state, `${p.name} contrôle tous les ${GROUPS[BOARD[i].group].label}s : loyers doublés à tous les niveaux !`, 'ok');
+        if (checkVictory(state, pIdx)) return OK;
         finishStep(state);
         return OK;
       }
@@ -766,7 +818,7 @@
         if (p.cash < RULES.worldTourFee) return ERR('Pas assez d’or.');
         p.cash -= RULES.worldTourFee;
         log(state, `${p.name} paie ${fmt(RULES.worldTourFee)} et voyage vers ${BOARD[i].name}.`);
-        moveTo(state, pIdx, i, {});
+        moveTo(state, pIdx, i, {}, rng);
         return OK;
       }
       case 'skipTeleport': {
@@ -872,7 +924,7 @@
     return false;
   }
 
-  // ---------- Bot ----------
+  // Bot
   function botAction(state, pIdx) {
     const p = state.players[pIdx];
     const t = state.turn;
