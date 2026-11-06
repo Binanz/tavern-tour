@@ -1,6 +1,6 @@
 import { $, app, RULES } from '../runtime.js';
 
-export function createGameView({ showMoneyDelta, showTurnOverlay, processEvents, showGame, buildPawns, positionAllPawns, renderPlayers, renderTiles, renderLog, renderActions, showEnd }) {
+export function createGameView({ showMoneyDelta, showTurnOverlay, processEvents, showGame, buildPawns, positionAllPawns, renderPlayers, renderTiles, renderLog, renderActions, renderTileInfo, showEnd }) {
   function onState() {
     const s = app.state; if (!s) return;
     showGame();
@@ -33,6 +33,8 @@ export function createGameView({ showMoneyDelta, showTurnOverlay, processEvents,
       if (app.state !== s) return;
       app.animating = false;
       renderPlayers(); renderTiles(); renderLog(); renderActions(false);
+      if (app.selectedTile === null) app.selectedTile = 0;
+      if (renderTileInfo) renderTileInfo(app.selectedTile);
     }, app.animDelay);
     if (s.phase === 'ended' && !(s.events || []).some((e) => e.type === 'gameover')) showEnd();
   }

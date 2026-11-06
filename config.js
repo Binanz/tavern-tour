@@ -6,9 +6,9 @@
   const RULES = {
     startCash: 2000000,        // argent de départ (comme Business Tour)
     salary: 200000,            // reçu en passant par la Taverne (Départ)
-    jailFee: 100000,           // pour quitter l'Île perdue
-    jailMaxTurns: 3,           // tours max sur l'Île perdue avant sortie forcée
-    championshipFee: 50000,    // organiser les Championnats sur une de ses cases
+    jailFee: 100000,           // pour quitter A. F. KAH
+    jailMaxTurns: 3,           // tours max à A. F. KAH avant sortie forcée
+    championshipFee: 50000,    // utiliser le Sombre Don sur un de ses serviteurs
     championshipMaxMult: 10,   // multiplicateur de loyer max (x2 -> x10)
     worldTourFee: 50000,       // voyager (toujours vers l'avant) vers une case libre ou à soi
     taxA: 200000,              // Impôt
@@ -53,7 +53,7 @@
     P('Éclaireur véloce', 'murloc', 100000),                                                 // 5
     P('Bourbissa', 'murloc', 100000),                                                        // 6
     P('Secrétaileron comptable', 'murloc', 120000, 'Secrétaileron'),                        // 7
-    { type: 'jail', name: "L'Île perdue", sub: 'Naufragé' },                                 // 8
+    { type: 'jail', name: 'A. F. KAH', sub: 'Héros perdu' },                                 // 8
     P('Scarabée des forêts', 'beast', 140000, 'Scarabée'),                                  // 9
     P('Goldrinn, le grand loup', 'beast', 160000, 'Goldrinn'),                              // 10
     P('Louveteau', 'beast', 180000),                                                        // 11
@@ -61,7 +61,7 @@
     P('Artiste des mers du Sud', 'pirate', 180000, 'Artiste des mers'),                     // 13
     S('Enchanteresse drakkari', 'Drakkari'),                                                 // 14
     P('Eudora, maîtresse d’équipage', 'pirate', 200000, 'Eudora'),                          // 15
-    { type: 'championship', name: 'Championnats', sub: 'du monde' },                        // 16
+    { type: 'championship', name: 'Sombre Don', sub: 'du Sombrelune' },                      // 16
     P('Géomancienne de Tranchebauge', 'quilboar', 220000, 'Géomancienne'),                  // 17
     S('Titus Vaillefendre', 'Titus'),                                                       // 18
     P('Géomage Roogug', 'quilboar', 240000, 'Roogug'),                                      // 19
@@ -69,7 +69,7 @@
     P('Tisse-colère', 'demon', 260000),                                                      // 21
     P('Tichondrius', 'demon', 280000),                                                      // 22
     P('Malchezaar, prince du rythme', 'demon', 300000, 'Malchezaar'),                       // 23
-    { type: 'worldtour', name: 'Tour du monde', sub: 'Portail' },                            // 24
+    { type: 'worldtour', name: 'Portail chronodistordu', sub: 'Voyage dans le temps' },      // 24
     S('Leeroy le Téméraire', 'Leeroy'),                                                      // 25
     P('Modeleur de boules de neige', 'elemental', 300000, 'Modeleur de neige'),             // 26
     P('Ichoron le protecteur', 'elemental', 300000, 'Ichoron'),                             // 27
@@ -88,14 +88,14 @@
     { text: 'Taxe sur les pièces d’or : payez 100 000.', kind: 'money', amount: -100000 },
     { text: 'Dividende du Marché noir : recevez 50 000.', kind: 'money', amount: 50000 },
     { text: 'Rafraîchissement ! Avancez jusqu’à la Taverne et recevez 400 000 (gain doublé).', kind: 'moveTo', tile: 0 },
-    { text: 'Naufrage ! Allez directement sur l’Île perdue, sans passer par la Taverne.', kind: 'jail' },
+    { text: 'Vous êtes perdu dans le temps ! Allez directement sur A. F. KAH, sans passer par la Taverne.', kind: 'jail' },
     { text: 'Vous reculez de 3 cases.', kind: 'moveBack', steps: 3 },
     { text: 'Avancez jusqu’au serviteur neutre le plus proche (Brann, Drakkari, Titus ou Leeroy).', kind: 'nearestStation' },
     { text: 'Avancez jusqu’à Kalecgos. Si vous passez par la Taverne, recevez 200 000.', kind: 'moveTo', tile: 31 },
     { text: 'Avancez jusqu’à Éclaireur véloce. Si vous passez par la Taverne, recevez 200 000.', kind: 'moveTo', tile: 5 },
     { text: 'Avancez jusqu’à la Géomancienne de Tranchebauge. Si vous passez par la Taverne, recevez 200 000.', kind: 'moveTo', tile: 17 },
-    { text: 'Allez aux Championnats du monde.', kind: 'moveTo', tile: 16 },
-    { text: 'Sortez gratuitement de l’Île perdue. Cette carte se conserve.', kind: 'jailCard' },
+    { text: 'Rendez-vous au Sombre Don.', kind: 'moveTo', tile: 16 },
+    { text: 'A. F. KAH vous libère. Cette carte se conserve.', kind: 'jailCard' },
     { text: 'Réparations de la taverne : payez 25 000 par niveau de taverne et 100 000 par serviteur doré.', kind: 'perHouse', house: 25000, hotel: 100000 },
     { text: 'C’est votre anniversaire ! Chaque joueur vous donne 50 000.', kind: 'collectEach', amount: 50000 },
     { text: 'Vous offrez la tournée : donnez 30 000 à chaque joueur.', kind: 'payEach', amount: 30000 },
@@ -147,12 +147,13 @@
   const CONFIG = { RULES, GROUPS, BOARD, CARDS, TOKENS, PLAYER_COLORS, BOT_NAMES, applyContent };
   if (typeof global.localStorage !== 'undefined') {
     try {
-      const currentKey = 'tavern-tour-content-v3';
+      const currentKey = 'tavern-tour-content-v4';
       let savedContent = global.localStorage.getItem(currentKey);
       if (!savedContent) {
+        const v3Content = global.localStorage.getItem('tavern-tour-content-v3');
         const v2Content = global.localStorage.getItem('tavern-tour-content-v2');
         const v1Content = v2Content ? null : global.localStorage.getItem('tavern-tour-content-v1');
-        const previousContent = v2Content || v1Content;
+        const previousContent = v3Content || v2Content || v1Content;
         if (previousContent) {
           const legacy = JSON.parse(previousContent);
           if (legacy.boardNames) {
@@ -176,6 +177,12 @@
             if (!names['14'] || names['14'] === 'Sans type') names['14'] = 'Enchanteresse drakkari';
             if (!names['18'] || names['18'] === 'Sans type') names['18'] = 'Titus Vaillefendre';
             if (!names['25'] || names['25'] === 'Sans type') names['25'] = 'Leeroy le Téméraire';
+            const renameDefault = (index, oldName, newName) => {
+              if (names[index] === oldName) names[index] = newName;
+            };
+            renameDefault('8', "L'Île perdue", 'A. F. KAH');
+            renameDefault('16', 'Championnats', 'Sombre Don');
+            renameDefault('24', 'Tour du monde', 'Portail chronodistordu');
             legacy.boardNames = names;
           }
           if (legacy.cardTexts && legacy.cardTexts[8] === 'Avancez jusqu’au serviteur le plus proche.') {
@@ -183,6 +190,12 @@
           }
           if (legacy.cardTexts && legacy.cardTexts[5] === 'Rafraîchissement ! Avancez jusqu’à la Taverne et recevez 200 000.') {
             legacy.cardTexts[5] = 'Rafraîchissement ! Avancez jusqu’à la Taverne et recevez 400 000 (gain doublé).';
+          }
+          if (legacy.cardTexts) {
+            legacy.cardTexts = legacy.cardTexts.map((text) => text
+              .replaceAll("l’Île perdue", 'A. F. KAH')
+              .replaceAll("L’Île perdue", 'A. F. KAH')
+              .replaceAll('aux Championnats du monde', 'au Sombre Don'));
           }
           savedContent = JSON.stringify(legacy);
           global.localStorage.setItem(currentKey, savedContent);

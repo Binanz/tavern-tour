@@ -1,6 +1,10 @@
 import { E, $, fmt, app, LEVEL_LABELS, BOARD, RULES } from '../runtime.js';
 import { toast, openModal, closeModal, esc, groupColor, typeLabel } from './helpers.js';
 
+const JAIL_NAME = BOARD.find((tile) => tile.type === 'jail').name;
+const SHADOW_GIFT_NAME = BOARD.find((tile) => tile.type === 'championship').name;
+const PORTAL_NAME = BOARD.find((tile) => tile.type === 'worldtour').name;
+
 export function createActions({ act, showTileSheet, showEnd }) {
   function offerCardHTML(i, extra) {
     const b = BOARD[i]; const t = app.state.tiles[i];
@@ -87,7 +91,7 @@ export function createActions({ act, showTileSheet, showEnd }) {
     if (pending) { el.innerHTML = `<div class="prompt muted">…</div>`; return; }
     const lastPay = t.lastPay && (['done', 'buyout', 'debt'].includes(t.step) || (t.step === 'roll' && t.rolledThisTurn)) ? t.lastPay : null;
     if (!myTurn) {
-      const what = { roll: 'lance les dés', jail: 'est naufragé sur l’Île perdue', buy: `hésite à acheter ${t.offer != null ? BOARD[t.offer].name : ''}`, build: 'envisage de construire', buyout: `peut racheter ${t.offer != null ? BOARD[t.offer].name : ''}`, teleport: 'choisit une destination', championship: 'organise les Championnats', debt: 'doit vendre pour payer sa dette', auction: 'participe aux enchères', done: 'termine son tour' }[t.step] || '';
+      const what = { roll: 'lance les dés', jail: `est à ${JAIL_NAME}`, buy: `hésite à acheter ${t.offer != null ? BOARD[t.offer].name : ''}`, build: 'envisage de construire', buyout: `peut racheter ${t.offer != null ? BOARD[t.offer].name : ''}`, teleport: 'choisit une destination', championship: `utilise le ${SHADOW_GIFT_NAME}`, debt: 'doit vendre pour payer sa dette', auction: 'participe aux enchères', done: 'termine son tour' }[t.step] || '';
       el.innerHTML = `${payNoteHTML(s, lastPay)}<div class="prompt muted">${esc(p.name)} ${what}…<small>Cliquez sur une case pour voir ses loyers.</small></div>`;
       return;
     }
@@ -99,7 +103,7 @@ export function createActions({ act, showTileSheet, showEnd }) {
         break;
       }
       case 'jail':
-        html = `<div class="prompt">Vous êtes naufragé sur l’Île perdue.<small>Essai ${meP.jailTurns + 1}/${RULES.jailMaxTurns} : faites un double pour partir, ou payez ${fmt(RULES.jailFee)}.</small></div>
+        html = `<div class="prompt">Vous êtes retenu à ${esc(JAIL_NAME)}.<small>Essai ${meP.jailTurns + 1}/${RULES.jailMaxTurns} : faites un double pour partir, ou payez ${fmt(RULES.jailFee)}.</small></div>
           <div class="btn-row"><button class="btn primary" data-act="jailRoll">🎲 Tenter un double</button><button class="btn" data-act="jailPay" ${meP.cash < RULES.jailFee ? 'disabled' : ''}>Payer ${fmt(RULES.jailFee)}</button>${meP.jailCards > 0 ? '<button class="btn" data-act="jailCard">Utiliser une carte de sortie</button>' : ''}</div>`;
         break;
       case 'buy': {
@@ -119,11 +123,11 @@ export function createActions({ act, showTileSheet, showEnd }) {
         break;
       }
       case 'teleport':
-        html = `<div class="prompt">Votre tour est consacré au Tour du monde. Choisissez une case libre ou à vous sur le plateau.<small>Coût ${fmt(RULES.worldTourFee)}. Vous avancez toujours vers l’avant : passer par la Taverne rapporte ${fmt(RULES.salary)}.</small></div><div class="btn-row"><button class="btn" data-act="skipTeleport">Passer ce voyage</button></div>`;
+        html = `<div class="prompt">Votre tour est consacré au ${esc(PORTAL_NAME)}. Choisissez une case libre ou à vous sur le plateau.<small>Coût ${fmt(RULES.worldTourFee)}. Vous avancez toujours vers l’avant : passer par la Taverne rapporte ${fmt(RULES.salary)}.</small></div><div class="btn-row"><button class="btn" data-act="skipTeleport">Passer ce voyage</button></div>`;
         break;
       case 'championship': {
         const next = Math.min(RULES.championshipMaxMult, s.championship ? s.championship.mult + 1 : 2);
-        html = `<div class="prompt">Organisez les Championnats sur une de vos cases (en surbrillance).<small>Coût ${fmt(RULES.championshipFee)} — le loyer y sera multiplié par ${next}.</small></div><div class="btn-row"><button class="btn" data-act="skipChampionship">Passer</button></div>`;
+        html = `<div class="prompt">Choisissez l’un de vos serviteurs pour y appliquer le ${esc(SHADOW_GIFT_NAME)} (case en surbrillance).<small>Coût ${fmt(RULES.championshipFee)} — le loyer y sera multiplié par ${next}.</small></div><div class="btn-row"><button class="btn" data-act="skipChampionship">Passer</button></div>`;
         break;
       }
       case 'debt': {
@@ -147,6 +151,7 @@ export function createActions({ act, showTileSheet, showEnd }) {
     const s = app.state; if (!s || app.animating) return;
     const me = app.myIdx; const myTurn = s.current === me && s.phase === 'playing';
     const b = BOARD[i]; const t = s.tiles[i];
+    showTileSheet(i);
     if (myTurn && app.selectMode === 'teleport' && E.teleportTargets(s, me).includes(i)) {
       const c = openModal(`<h2>Voyager vers ${esc(b.name)} ?</h2><p>Le Portail vous y dépose pour ${fmt(RULES.worldTourFee)}. ${t.owner === null ? 'La case est libre : vous pourrez l’acheter.' : 'C’est chez vous : vous pourrez y construire.'}</p><div class="btn-row"><button class="btn primary" id="okTp">Voyager</button><button class="btn" data-close>Annuler</button></div>`);
       c.querySelector('#okTp').onclick = () => { closeModal(); act({ type: 'teleport', tile: i }); };
@@ -154,11 +159,10 @@ export function createActions({ act, showTileSheet, showEnd }) {
     }
     if (myTurn && app.selectMode === 'championship' && E.championshipTargets(s, me).includes(i)) {
       const next = Math.min(RULES.championshipMaxMult, s.championship ? s.championship.mult + 1 : 2);
-      const c = openModal(`<h2>Championnats sur ${esc(b.name)} ?</h2><p>Pour ${fmt(RULES.championshipFee)}, le loyer de cette case sera multiplié par ${next} (loyer actuel ${fmt(E.computeRent(s, i, 7))} → ${fmt(E.computeRent({ ...s, championship: null }, i, 7) * next)}).</p><div class="btn-row"><button class="btn primary" id="okCh">Organiser</button><button class="btn" data-close>Annuler</button></div>`);
+      const c = openModal(`<h2>${esc(SHADOW_GIFT_NAME)} sur ${esc(b.name)} ?</h2><p>Pour ${fmt(RULES.championshipFee)}, le loyer de ce serviteur sera multiplié par ${next} (loyer actuel ${fmt(E.computeRent(s, i, 7))} → ${fmt(E.computeRent({ ...s, championship: null }, i, 7) * next)}).</p><div class="btn-row"><button class="btn primary" id="okCh">Appliquer le Sombre Don</button><button class="btn" data-close>Annuler</button></div>`);
       c.querySelector('#okCh').onclick = () => { closeModal(); act({ type: 'championship', tile: i }); };
       return;
     }
-    showTileSheet(i);
   }
 
 

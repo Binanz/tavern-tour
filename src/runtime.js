@@ -29,6 +29,7 @@ const app = {
   clientPeerId: null,
   pendingClaims: Object.create(null),
   animating: false,
+  selectedTile: null,
 };
 const LEVEL_LABELS = ['Sans taverne', 'Taverne 1', 'Taverne 2', 'Taverne 3', 'Taverne 4', 'Serviteur doré'];
 

@@ -64,6 +64,7 @@ const game = createGameView({
   renderTiles: (...args) => board.renderTiles(...args),
   renderLog: (...args) => board.renderLog(...args),
   renderActions: (...args) => actions.renderActions(...args),
+  renderTileInfo: (...args) => dialogs.showTileSheet(...args),
   showEnd: (...args) => dialogs.showEnd(...args),
 });
 

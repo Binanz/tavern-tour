@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./style.css?v=20" />
+  <link rel="stylesheet" href="./style.css?v=22" />
 </head>
 <body>
   <header class="topbar">
@@ -135,11 +135,19 @@
 
     <aside class="side">
       <div class="players" id="players"></div>
+      <aside class="game-log">
+        <div class="log-panel">
+          <div class="log-head">Journal de Bob</div>
+          <div class="log" id="log"></div>
+        </div>
+      </aside>
     </aside>
-    <aside class="game-log">
-      <div class="log-panel">
-        <div class="log-head">Journal de Bob</div>
-        <div class="log" id="log"></div>
+    <aside class="game-info" aria-live="polite">
+      <div class="game-info-panel">
+        <div class="game-info-head">Fiche de case</div>
+        <div class="tile-info" id="tileInfo">
+          <div class="tile-info-empty">Cliquez sur une case du plateau pour afficher ses informations.</div>
+        </div>
       </div>
     </aside>
   </main>
@@ -152,10 +160,10 @@
   <div class="fx-layer" id="fx" aria-hidden="true"></div>
 
   <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-  <script src="./config.js?v=10"></script>
-  <script src="./engine.js?v=11"></script>
+  <script src="./config.js?v=11"></script>
+  <script src="./engine.js?v=12"></script>
   <script src="./net.js?v=5"></script>
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=2"></script>
 <script data-pplx-inline-edit>
 (function () {
   if (window === window.top) return;

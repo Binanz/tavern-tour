@@ -10,7 +10,8 @@ Tavern Tour is a multiplayer board game inspired by property-trading classics an
 - **Configurable match length:** Choose a 10-, 15-, 20-, or 30-minute game.
 - **Timed turns:** Each turn lasts 30 seconds, with a visual fuse timer.
 - **Strategic property system:** Buy minions, improve properties through four Tavern levels and a Golden Minion, collect rent, sell properties, and bid in bankruptcy auctions.
-- **Special spaces and cards:** Visit the Lost Island, draw Chance cards, organize Championships, use the World Tour, and collect Festival rent bonuses.
+- **Special spaces and cards:** Visit A. F. KAH, draw Chance cards, use the Shadow Gift and Time-Twisted Portal, and collect Darkmoon Festival rent bonuses.
+- **Board inspector:** Select any space to view its owner, purchase price, rent by upgrade level, and active effects beside the board.
 - **Three immediate victory conditions:** Own all four neutral minions, every purchasable space on one side of the board, or three complete minion-family monopolies.
 
 ## Getting Started
@@ -47,12 +48,13 @@ Local play against bots works without creating a room. Online multiplayer requir
 - Passing Start awards the salary; landing directly on Start awards twice the salary.
 - Buy available properties and neutral minions, improve properties up to Tavern 4, and then upgrade to a Golden Minion.
 - Completing a property family doubles its rent at every upgrade level.
-- Festival selects three purchasable spaces from different families at the beginning of each game. Their rent is doubled for the rest of the match; purchase prices are unaffected.
+- The Darkmoon Festival selects three purchasable spaces from different families at the beginning of each game. Their rent is doubled for the rest of the match; purchase prices are unaffected.
 - Landing on an opponent's property requires paying rent. Eligible properties can then be bought out for 125% of their original investment. Neutral minions cannot be bought out.
 - Players can sell an entire property, including its upgrades, for 75% of its total investment. A bankrupt player's properties and upgrades are auctioned, and the player receives 50% of each winning bid.
-- A player sent to the Lost Island must pay to leave, use a release card, or attempt to roll doubles.
-- The World Tour activates on the player's next turn and replaces their normal dice roll.
-- Championships can increase the rent on one of the organizer's properties.
+- A player sent to A. F. KAH must pay to leave, use a release card, or attempt to roll doubles.
+- The Time-Twisted Portal activates on the player's next turn and replaces their normal dice roll.
+- The Shadow Gift can increase rent on one of the player's properties.
+- Darkmoon Festival spaces are marked with a subtle violet halo; the Shadow Gift target is marked with a subtle red halo.
 
 ### Winning
 

@@ -19,6 +19,11 @@ test('module composition starts the home screen and a complete local game', asyn
   assert.equal(h.get('screen-home').hidden, true);
   assert.equal(h.get('screen-game').hidden, false);
   assert.equal(h.get('board').querySelectorAll('.tile').length, h.context.TT_CONFIG.BOARD.length);
+  h.flush();
+  const shadowGiftTile = h.get('board').children.find(tile => tile.dataset.i === 16);
+  shadowGiftTile.onclick();
+  assert.match(h.get('tileInfo').innerHTML, /Sombre Don/);
+  assert.doesNotMatch(h.get('players').children[0].innerHTML, /pc-coins|pc-worth|Fortune/);
   // Finish ordering with distinct, controlled dice, then play via the real session.
   while (app.state.ordering) {
     const value = app.state.current / 4;

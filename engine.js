@@ -6,6 +6,9 @@
   const { RULES, GROUPS, BOARD, CARDS, PLAYER_COLORS } = CFG;
   const N = BOARD.length;
   const JAIL_TILE = BOARD.findIndex((tile) => tile.type === 'jail');
+  const JAIL_NAME = BOARD[JAIL_TILE].name;
+  const SHADOW_GIFT_NAME = BOARD.find((tile) => tile.type === 'championship').name;
+  const PORTAL_NAME = BOARD.find((tile) => tile.type === 'worldtour').name;
   const OWNABLE = new Set(['property', 'station']);
   const WINNING_LINES = [[1, 7], [9, 15], [17, 23], [25, 31]];
 
@@ -82,7 +85,7 @@
       turnCount: 0,
     };
     log(state, 'Chaque joueur lance les dés pour déterminer l’ordre de passage.');
-    log(state, `Festival de la taverne : ${state.festivalTiles.map((i) => BOARD[i].name).join(', ')} ont leur loyer doublé jusqu’à la fin de la partie.`, 'ok');
+    log(state, `Festival de Sombrelune : ${state.festivalTiles.map((i) => BOARD[i].name).join(', ')} ont leur loyer doublé jusqu’à la fin de la partie.`, 'ok');
     return state;
   }
 
@@ -244,7 +247,7 @@
     p.jailTurns = 0;
     state.turn.isDouble = false; // pas de relance
     ev(state, { type: 'jail', player: pIdx });
-    log(state, `${p.name} échoue sur l’Île perdue !`, 'warn');
+    log(state, `${p.name} échoue à ${JAIL_NAME} !`, 'warn');
     state.turn.step = 'done';
   }
 
@@ -330,15 +333,15 @@
       case 'championship':
         if (championshipTargets(state, pIdx).length && p.cash >= RULES.championshipFee) {
           state.turn.step = 'championship';
-          log(state, `${p.name} peut organiser les Championnats (${fmt(RULES.championshipFee)}).`);
+          log(state, `${p.name} peut utiliser le ${SHADOW_GIFT_NAME} (${fmt(RULES.championshipFee)}).`);
         } else {
-          log(state, `${p.name} assiste aux Championnats du monde.`);
+          log(state, `${p.name} découvre le ${SHADOW_GIFT_NAME}.`);
           finishStep(state);
         }
         break;
       case 'worldtour':
         p.worldTourPending = true;
-        log(state, `${p.name} active le Tour du monde pour son prochain tour.`);
+        log(state, `${p.name} active le ${PORTAL_NAME} pour son prochain tour.`);
         finishStep(state);
         break;
       default:
@@ -483,7 +486,7 @@
     state.turn = newTurn();
     state.turnEndsAt = now + RULES.turnDurationMs;
     const p = state.players[i];
-    log(state, `— Au tour de ${p.name}${p.inJail ? ' (naufragé sur l’Île perdue)' : ''}.`, 'turn');
+    log(state, `— Au tour de ${p.name}${p.inJail ? ` (à ${JAIL_NAME})` : ''}.`, 'turn');
     if (p.inJail) state.turn.step = 'jail';
     else if (p.worldTourPending) {
       p.worldTourPending = false;
@@ -745,7 +748,7 @@
         ev(state, { type: 'dice', player: pIdx, dice: d });
         log(state, `${p.name} lance ${d[0]} + ${d[1]}${t.isDouble ? ' (double)' : ''}.`);
         if (t.doubles >= 3) {
-          log(state, `Trois doubles ! ${p.name} est envoyé sur l’Île perdue.`, 'warn');
+          log(state, `Trois doubles ! ${p.name} est envoyé à ${JAIL_NAME}.`, 'warn');
           sendToJail(state, pIdx);
           return OK;
         }
@@ -753,25 +756,25 @@
         return OK;
       }
       case 'jailPay': {
-        if (t.step !== 'jail') return ERR('Vous n’êtes pas sur l’Île perdue.');
+        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${JAIL_NAME}.`);
         if (p.cash < RULES.jailFee) return ERR('Pas assez d’or.');
         p.cash -= RULES.jailFee;
         p.inJail = false;
         t.step = 'roll';
-        log(state, `${p.name} paie ${fmt(RULES.jailFee)} et quitte l’Île perdue.`);
+        log(state, `${p.name} paie ${fmt(RULES.jailFee)} et quitte ${JAIL_NAME}.`);
         return OK;
       }
       case 'jailCard': {
-        if (t.step !== 'jail') return ERR('Vous n’êtes pas sur l’Île perdue.');
+        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${JAIL_NAME}.`);
         if (p.jailCards <= 0) return ERR('Aucune carte de sortie.');
         p.jailCards--;
         p.inJail = false;
         t.step = 'roll';
-        log(state, `${p.name} utilise une carte et quitte l’Île perdue.`);
+        log(state, `${p.name} utilise une carte et quitte ${JAIL_NAME}.`);
         return OK;
       }
       case 'jailRoll': {
-        if (t.step !== 'jail') return ERR('Vous n’êtes pas sur l’Île perdue.');
+        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${JAIL_NAME}.`);
         const d = rollDice(rng);
         t.dice = d;
         t.rolledThisTurn = true;
@@ -779,7 +782,7 @@
         if (d[0] === d[1]) {
           p.inJail = false;
           t.isDouble = false;
-          log(state, `${p.name} fait un double (${d[0]}+${d[1]}) et s’échappe de l’Île perdue !`, 'ok');
+          log(state, `${p.name} fait un double (${d[0]}+${d[1]}) et s’échappe de ${JAIL_NAME} !`, 'ok');
           moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
         } else {
           p.jailTurns++;
@@ -880,7 +883,7 @@
         return OK;
       }
       case 'championship': {
-        if (t.step !== 'championship') return ERR('Pas de Championnats à organiser.');
+        if (t.step !== 'championship') return ERR(`Pas de ${SHADOW_GIFT_NAME} à utiliser.`);
         const i = action.tile;
         if (!championshipTargets(state, pIdx).includes(i)) return ERR('Case invalide.');
         if (p.cash < RULES.championshipFee) return ERR('Pas assez d’or.');
@@ -889,12 +892,12 @@
         const mult = Math.min(RULES.championshipMaxMult, prev ? prev.mult + 1 : 2);
         state.championship = { tile: i, mult };
         ev(state, { type: 'championship', tile: i, mult });
-        log(state, `${p.name} organise les Championnats sur ${BOARD[i].name} : loyer x${mult} !`, 'ok');
+        log(state, `${p.name} utilise le ${SHADOW_GIFT_NAME} sur ${BOARD[i].name} : loyer x${mult} !`, 'ok');
         finishStep(state);
         return OK;
       }
       case 'skipChampionship': {
-        if (t.step !== 'championship') return ERR('Pas de Championnats à organiser.');
+        if (t.step !== 'championship') return ERR(`Pas de ${SHADOW_GIFT_NAME} à utiliser.`);
         finishStep(state);
         return OK;
       }

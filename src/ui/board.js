@@ -96,25 +96,14 @@ export function createBoard({ onTileClick }) {
       card.style.setProperty('--pc', p.color);
       const props = s.tiles.map((t, k) => (t && t.owner === i ? k : -1)).filter((k) => k >= 0);
       const chips = props.map((k) => `<span class="chip ${BOARD[k].type}" style="--g:${groupColor(k)}" title="${esc(BOARD[k].name)} — ${BOARD[k].type === 'property' ? LEVEL_LABELS[s.tiles[k].houses] : typeLabel(k)}">${s.tiles[k].houses ? `<i>${s.tiles[k].houses === E.HOTEL ? 'D' : s.tiles[k].houses}</i>` : ''}</span>`).join('');
-      const meta = [p.inJail ? 'Île perdue' : BOARD[p.pos].name, p.jailCards ? `${p.jailCards} carte${p.jailCards > 1 ? 's' : ''} de sortie` : ''].filter(Boolean).join(' · ');
+      const meta = [p.inJail ? BOARD.find((tile) => tile.type === 'jail').name : BOARD[p.pos].name, p.jailCards ? `${p.jailCards} carte${p.jailCards > 1 ? 's' : ''} de sortie` : ''].filter(Boolean).join(' · ');
       card.innerHTML = `
         <div class="pc-tok">${p.token}</div>
         <div><div class="pc-name">${esc(p.name)}${i === app.myIdx ? '<span class="you">Vous</span>' : ''}${p.isBot ? `<span class="bot">${p.connected === false ? 'Bot (déco)' : 'Bot'}</span>` : ''}</div><div class="pc-meta">${p.bankrupt ? 'Faillite' : esc(meta)}</div></div>
-        <div><div class="pc-cash">${fmt(p.cash)}</div><div class="pc-worth">Fortune ${fmt(E.netWorth(s, i))}</div></div>
-        <div class="pc-coins" title="Or en caisse : une pièce d’or = 250 000, une pièce d’argent = 50 000">${coinStacks(p.cash)}</div>
+        <div class="pc-cash">${fmt(p.cash)}</div>
         <div class="pc-props">${chips}</div>`;
       wrap.appendChild(card);
     });
-  }
-
-  function coinStacks(cash) {
-    if (cash <= 0) return '<span class="empty">Caisse vide</span>';
-    const gold = Math.min(40, Math.floor(cash / 250000));
-    const silver = Math.min(4, Math.floor((cash % 250000) / 50000));
-    let html = '';
-    for (let k = 0; k < gold; k += 5) html += `<div class="stack">${'<span class="coin"></span>'.repeat(Math.min(5, gold - k))}</div>`;
-    if (silver) html += `<div class="stack">${'<span class="coin silver"></span>'.repeat(silver)}</div>`;
-    return html;
   }
 
   function renderTiles() {
@@ -130,6 +119,9 @@ export function createBoard({ onTileClick }) {
       const i = +el.dataset.i;
       const t = s.tiles[i];
       el.classList.toggle('auctioning', !!(s.auction && s.auction.tiles[s.auction.cursor] === i));
+      el.classList.toggle('info-selected', app.selectedTile === i);
+      el.classList.toggle('shadow-gifted', !!(s.championship && s.championship.tile === i));
+      el.classList.toggle('darkmoon-festival', !!(s.festivalTiles && s.festivalTiles.includes(i)));
       if (t) {
         const owned = t.owner !== null;
         el.style.setProperty('--oc', owned ? s.players[t.owner].color : 'transparent');
@@ -153,19 +145,19 @@ export function createBoard({ onTileClick }) {
         if (pr) { if (owned) { pr.textContent = 'Loyer ' + fmtShort(E.computeRent(s, i, 7)); pr.classList.add('rent'); } else { pr.textContent = fmt(BOARD[i].price); pr.classList.remove('rent'); } }
       }
       let champ = el.querySelector('.champ');
-      if (s.championship && s.championship.tile === i) { if (!champ) { champ = document.createElement('div'); champ.className = 'champ'; el.appendChild(champ); } champ.textContent = '🏆'; champ.title = `Championnats : loyer x${s.championship.mult}`; }
+      if (s.championship && s.championship.tile === i) { if (!champ) { champ = document.createElement('div'); champ.className = 'champ'; el.appendChild(champ); } champ.textContent = '✦'; champ.title = `Sombre Don : loyer x${s.championship.mult}`; }
       else if (champ) champ.remove();
       let festival = el.querySelector('.festival');
       if (s.festivalTiles && s.festivalTiles.includes(i)) {
         if (!festival) { festival = document.createElement('div'); festival.className = 'festival'; el.appendChild(festival); }
-        festival.textContent = '🎪'; festival.title = 'Festival : loyer x2';
+        festival.textContent = '☾'; festival.title = 'Festival de Sombrelune : loyer x2';
       } else if (festival) festival.remove();
       el.classList.toggle('highlight', !!(highlights && highlights.has(i)));
       el.classList.toggle('sell', sellMode && !!(highlights && highlights.has(i)));
       el.classList.toggle('dimmed', !!(highlights && !highlights.has(i)));
     });
     const cn = $('champNote');
-    if (s.championship) { cn.hidden = false; cn.textContent = `🏆 Championnats sur ${BOARD[s.championship.tile].name} — loyer x${s.championship.mult}`; } else cn.hidden = true;
+    if (s.championship) { cn.hidden = false; cn.textContent = `✦ Sombre Don sur ${BOARD[s.championship.tile].name} — loyer x${s.championship.mult}`; } else cn.hidden = true;
   }
 
   function renderLog() {

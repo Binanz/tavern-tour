@@ -24,6 +24,7 @@ export function createSession({ shuffledBotNames, setNetStatus, onState }) {
   function launch(players, durationMin) {
     $('brandHome').disabled = true;
     document.querySelector('.topbar').classList.remove('game-ended');
+    app.selectedTile = null;
     app.state = E.createGame(players, { durationMin });
     app.displayedPos = app.state.players.map(() => 0);
     app.prevCash = null; app.prevCurrent = -1; app.prevTurnCount = 0;
