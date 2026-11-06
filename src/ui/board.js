@@ -102,6 +102,12 @@ export function createBoard({ onTileClick }) {
         <div><div class="pc-name">${esc(p.name)}${i === app.myIdx ? '<span class="you">Vous</span>' : ''}${p.isBot ? `<span class="bot">${p.connected === false ? 'Bot (déco)' : 'Bot'}</span>` : ''}</div><div class="pc-meta">${p.bankrupt ? 'Faillite' : esc(meta)}</div></div>
         <div class="pc-cash">${fmt(p.cash)}</div>
         <div class="pc-props">${chips}</div>`;
+      if (s.powers) {
+        const inventory = document.createElement('div');
+        inventory.className = 'player-powers';
+        inventory.textContent = 'Pouvoirs : ' + (p.inventory.map(id => window.TT_CONFIG.POWERS[id].name).join(' · ') || 'aucun') + (p.insurance ? ' • protection loyer active' : '') + (p.buildDiscount ? ' • permis actif' : '');
+        card.appendChild(inventory);
+      }
       wrap.appendChild(card);
     });
   }
@@ -142,11 +148,14 @@ export function createBoard({ onTileClick }) {
           ? '<span class="golden-mark" title="Serviteur doré">Doré</span>'
           : t.houses > 0 ? `<span class="tavern-mark" title="Taverne ${t.houses}">T${t.houses}</span>` : '';
         const pr = el.querySelector('.price');
-        if (pr) { if (owned) { pr.textContent = 'Loyer ' + fmtShort(E.computeRent(s, i, 7)); pr.classList.add('rent'); } else { pr.textContent = fmt(BOARD[i].price); pr.classList.remove('rent'); } }
+        if (pr) { if (owned) { pr.textContent = 'Loyer ' + fmtShort(E.computeRent(s, i, 7)); pr.classList.add('rent'); } else { pr.textContent = fmt(E.landPrice(s, i)); pr.classList.remove('rent'); } }
       }
       let champ = el.querySelector('.champ');
       if (s.championship && s.championship.tile === i) { if (!champ) { champ = document.createElement('div'); champ.className = 'champ'; el.appendChild(champ); } champ.textContent = '✦'; champ.title = `Sombre Don : loyer x${s.championship.mult}`; }
       else if (champ) champ.remove();
+      const cursed = !!(s.anomaly && s.anomaly.cursedTiles.includes(i));
+      el.classList.toggle('cursed', cursed);
+      el.title = BOARD[i].name + (cursed ? ' — Maudite : terrain −25 %, loyers ×2' : '');
       let festival = el.querySelector('.festival');
       if (s.festivalTiles && s.festivalTiles.includes(i)) {
         if (!festival) { festival = document.createElement('div'); festival.className = 'festival'; el.appendChild(festival); }

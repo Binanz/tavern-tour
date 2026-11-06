@@ -486,3 +486,21 @@ input:focus, select:focus { border-color: var(--gold-2); }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Optional game modes */
+.mode-settings { grid-column: 1 / -1; display: grid; gap: 10px; }
+.mode-note { max-width: 100%; margin: 0; padding: .6em; background: #51375c; border-radius: 8px; color: #f6e5ff; font-size: .95em; line-height: 1.4; }
+.tile.cursed { outline: 3px solid #9c5cc5; outline-offset: -4px; }
+.tile.cursed .name::before { content: "☠ "; }
+
+.power-offers, .power-rack { display: grid; gap: 10px; width: 100%; }
+.power-card, .power-slot { display: grid; gap: 8px; text-align: left; white-space: normal; }
+.power-card span, .power-slot span { font-size: .9em; line-height: 1.5; }
+.power-slot { padding: 12px; background: #33200f; border: 1px solid #8f7536; border-radius: 10px; }
+.power-slot label { display: grid; gap: 6px; }
+.power-slot select { width: 100%; min-width: 0; }
+.legendary { border: 2px solid #e8bc62; background: #49305b; color: #fff0c7; }
+.player-powers { grid-column: 1 / -1; font-size: 12px; color: var(--cream-dim); line-height: 1.5; }
+
+/* Keep the first choice reachable when mode content exceeds the center height. */
+.center { justify-content: safe center; }

@@ -91,12 +91,28 @@ export function createActions({ act, showTileSheet, showEnd }) {
     if (pending) { el.innerHTML = `<div class="prompt muted">…</div>`; return; }
     const lastPay = t.lastPay && (['done', 'buyout', 'debt'].includes(t.step) || (t.step === 'roll' && t.rolledThisTurn)) ? t.lastPay : null;
     if (!myTurn) {
-      const what = { roll: 'lance les dés', jail: `est à ${JAIL_NAME}`, buy: `hésite à acheter ${t.offer != null ? BOARD[t.offer].name : ''}`, build: 'envisage de construire', buyout: `peut racheter ${t.offer != null ? BOARD[t.offer].name : ''}`, teleport: 'choisit une destination', championship: `utilise le ${SHADOW_GIFT_NAME}`, debt: 'doit vendre pour payer sa dette', auction: 'participe aux enchères', done: 'termine son tour' }[t.step] || '';
+      const what = { tavernChoice: 'choisit sa récompense de Taverne', rerollChoice: 'décide de relancer ses dés', diceChoice: 'choisit deux dés parmi trois', roll: 'lance les dés', jail: 'est naufragé sur l’Île perdue', buy: `hésite à acheter ${t.offer != null ? BOARD[t.offer].name : ''}`, build: 'envisage de construire', buyout: `peut racheter ${t.offer != null ? BOARD[t.offer].name : ''}`, teleport: 'choisit une destination', championship: 'organise les Championnats', debt: 'doit vendre pour payer sa dette', auction: 'participe aux enchères', done: 'termine son tour' }[t.step] || '';
       el.innerHTML = `${payNoteHTML(s, lastPay)}<div class="prompt muted">${esc(p.name)} ${what}…<small>Cliquez sur une case pour voir ses loyers.</small></div>`;
       return;
     }
     let html = '';
     switch (t.step) {
+      case 'tavernChoice': {
+        const choice = t.tavernChoice, full = meP.inventory.length >= window.TT_CONFIG.POWER_RULES.maxInventory;
+        html = '<div class="prompt">Récompense de la Taverne<small>Choisissez votre salaire ou un pouvoir. Réserve : ' + meP.inventory.length + '/2. Les légendaires ne peuvent apparaître qu’une fois, même refusés.' + (choice.extra ? ' Arrivée exacte : supplément de ' + fmt(choice.extra) + ' or conservé avec un pouvoir.' : '') + '</small></div><button class="btn primary" data-reward="cash">Prendre ' + fmt(choice.salary) + ' or</button><div class="power-offers">' + choice.offers.map(id => {
+          const power = window.TT_CONFIG.POWERS[id];
+          return '<button class="btn power-card' + (power.rare ? ' legendary' : '') + '" data-reward="' + id + '" ' + (full ? 'disabled' : '') + '><strong>' + esc(power.name) + (power.rare ? ' · LÉGENDAIRE UNIQUE' : '') + '</strong><span>' + esc(power.description) + '</span></button>';
+        }).join('') + '</div>';
+        break;
+      }
+      case 'rerollChoice': {
+        html = '<div class="prompt">Seconde chance : ' + t.pendingDice.join(' + ') + '<small>Gardez ce résultat ou relancez une seule fois.</small></div><div class="btn-row"><button class="btn primary" data-act="keepDice">Garder les dés</button><button class="btn" data-act="rerollDice">Relancer</button></div>';
+        break;
+      }
+      case 'diceChoice': {
+        html = '<div class="prompt">Choisissez deux dés parmi ' + t.rollChoices.join(' · ') + '.<small>Les deux dés gardés déterminent le déplacement et les doubles.</small></div><div class="btn-row">' + [[0,1],[0,2],[1,2]].map(pair => '<button class="btn primary" data-pair="' + pair.join(',') + '">' + pair.map(i => t.rollChoices[i]).join(' + ') + '</button>').join('') + '</div>';
+        break;
+      }
       case 'roll': {
         html = `<div class="prompt">${t.doubles > 0 ? 'Double ! Relancez les dés.' : 'Lancez les dés.'}<small>Votre tour dure 30 secondes. Cliquez sur une de vos propriétés pour vendre la case entière à 75 % de l’investissement.</small></div>
           <button class="btn primary big" data-act="roll">🎲 Lancer les dés</button>`;
@@ -141,7 +157,23 @@ export function createActions({ act, showTileSheet, showEnd }) {
         html = `${payNoteHTML(s, lastPay)}<div class="prompt muted">Tour terminé.<small>Le tour passe au joueur suivant…</small></div>`;
         break;
     }
+    if (s.powers && t.step === 'roll') {
+      html += '<div class="power-rack"><div class="prompt">Réserve de pouvoirs (' + meP.inventory.length + '/2)<small>Un pouvoir par tour, avant un lancer.' + (meP.insurance ? ' Protection loyer active.' : '') + (meP.buildDiscount ? ' Permis actif.' : '') + '</small></div>' + meP.inventory.map((id, index) => {
+        const power = window.TT_CONFIG.POWERS[id], targeted = ['annihilation', 'goldenGift'].includes(id), targets = targeted ? E.powerTargets(s, me, id) : [];
+        const disabled = t.powerUsed || (targeted && !targets.length) || (['shield','rentSkip'].includes(id) && meP.insurance) || (id === 'permit' && meP.buildDiscount) || (id === 'reroll' && meP.rerollReady);
+        return '<div class="power-slot' + (power.rare ? ' legendary' : '') + '"><strong>' + esc(power.name) + '</strong><span>' + esc(power.description) + '</span>' + (targeted ? '<label>Propriété cible<select data-power-target="' + index + '">' + targets.map(i => '<option value="' + i + '">' + esc(BOARD[i].name) + ' · ' + esc(s.players[s.tiles[i].owner].name) + '</option>').join('') + '</select></label>' : '') + (id === 'step' ? [-1,1].map(delta => '<button class="btn small" data-power="' + index + '" data-delta="' + delta + '" ' + (disabled ? 'disabled' : '') + '>Déplacement ' + (delta > 0 ? '+' : '') + delta + '</button>').join('') : '<button class="btn small" data-power="' + index + '" ' + (disabled ? 'disabled' : '') + '>Utiliser</button>') + '</div>';
+      }).join('') + '</div>';
+    }
     el.innerHTML = html;
+    el.querySelectorAll('[data-reward]').forEach(b => { b.onclick = () => act({ type: 'chooseTavern', reward: b.dataset.reward }); });
+    el.querySelectorAll('[data-power]').forEach(b => { b.onclick = () => {
+      const index = Number(b.dataset.power), target = el.querySelector('[data-power-target="' + index + '"]');
+      const action = { type: 'usePower', index };
+      if (target) action.tile = Number(target.value);
+      if (b.dataset.delta !== undefined) action.delta = Number(b.dataset.delta);
+      act(action);
+    }; });
+    el.querySelectorAll('[data-pair]').forEach(b => { b.onclick = () => act({ type: 'chooseDice', indices: b.dataset.pair.split(',').map(Number) }); });
     el.querySelectorAll('[data-act]').forEach((b) => (b.onclick = () => { act({ type: b.dataset.act }); }));
     el.querySelectorAll('.lvl[data-houses]').forEach((b) => (b.onclick = () => { act({ type: t.step === 'buy' ? 'buy' : 'build', houses: +b.dataset.houses }); }));
   }

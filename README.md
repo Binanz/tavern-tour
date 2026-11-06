@@ -128,3 +128,33 @@ Pre-game lobby data and visual preferences remain managed by their controllers. 
 ## Credits and Disclaimer
 
 Tavern Tour is a fan-made, non-commercial project. It is not affiliated with or endorsed by Blizzard Entertainment. Game names and themed content belong to their respective owners.
+## Optional mode: shared anomalies
+
+The home screen and host lobby offer Classic (default), Random, Festival itinérant, Terres maudites and Dé du destin. One shared anomaly is selected at match creation, synchronized in the game snapshot, and displayed throughout the match. Replaying draws a fresh anomaly when Random is selected. Guests see the host's selection and cannot change it.
+
+- **Festival itinérant:** redraw three Festival spaces from distinct families when play wraps around the turn order; bankrupt players are skipped.
+- **Terres maudites:** three property spaces have a 25% discount on the land price and double rent. Construction prices stay unchanged; valuation, resale and buyouts use the discounted land value. Festival and family multipliers still apply.
+- **Dé du destin:** outside initial ordering and prison, roll three dice and choose two. Only the chosen pair determines movement and doubles. Bots choose the largest sum; an expired choice is resolved automatically before normal timeout handling.
+
+Mode rules are in `config.js`, transitions remain in `engine.js`. State stores the anomaly and Festival PRNG state so a serialized match can continue consistently.
+
+## Optional mode: Tavern powers
+
+A separate checkbox enables Tavern rewards, with or without shared anomalies. The host controls it; local games also support it. Classic games retain their salary and rule behavior.
+
+At the first forward crossing of Start in a turn (including forward Chance moves and World Tour travel), resolve a reward choice before resolving the landing space: take the normal salary or one of two powers. Arriving exactly at Start offers 400,000 cash, or a power plus the extra 200,000. Backward moves do not grant rewards. Further crossings in the same turn increment laps but grant no further salary or power. A full two-slot reserve forces the cash choice; expired choices take cash. Offers, inventory, active effects and global legendary stock are serialized and shared by the host.
+
+Use at most one power per turn, before a dice roll. Powers may be saved across turns:
+
+- **Bouclier de Bob:** bank covers up to 200,000 of the next rent; the owner receives the full rent.
+- **Seconde chance:** preview the next dice result, then keep it or reroll once. With Dé du destin, choose two of the three dice before deciding; rerolling gives a fresh three-dice choice without another reroll.
+- **Coup de pouce:** add or subtract one from the next dice movement, without changing doubles.
+- **Permis de construire:** discount up to 150,000 on a later improvement, including Golden Minion; unused discount is lost when building. It does not discount an initial purchase.
+
+Each reward offer has a **5% chance** (configured in `POWER_RULES.legendaryChance`) of containing one legendary. Each legendary type is removed from the global pool **when first offered**, even if declined or inventory is full. It cannot appear again that game, including after disconnects or bankruptcy. A new match resets the pool:
+
+- **Tournée légendaire:** bank covers the next rent without a cap.
+- **Anéantissement:** send an enemy property and every upgrade, including Golden Minion, to the bank with no refund. Neutral minions cannot be targeted. Championships on the destroyed property are removed.
+- **Toucher de Midas:** upgrade one owned property straight to Golden Minion for free.
+
+Legendary strength and the initial 5% rate are deliberate first balancing values. The log announces legendary appearances and uses. Bots choose, store and use powers; timed-out dice/reward choices are resolved before the usual turn timeout handling.
