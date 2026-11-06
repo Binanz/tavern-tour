@@ -188,9 +188,15 @@
     }
     return available.slice(0, count);
   }
+  function randomBotName(excluded) {
+    const [name] = shuffledBotNames(excluded, 1);
+    return name || BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
+  }
   function readMe() {
     const n = $('nameInput').value.trim();
-    app.me.name = n || 'Aventurier';
+    const excluded = app.lobby ? app.lobby.players.map((player) => player.name) : [];
+    app.me.name = n || randomBotName(excluded);
+    if (!n) $('nameInput').value = app.me.name;
     return app.me;
   }
   function setNetStatus(msg, isError) {
@@ -314,7 +320,8 @@
   function applyLobbyProfile(idx, requestedName, requestedToken) {
     const L = app.lobby; const player = L && L.players[idx];
     if (!player) return;
-    let name = String(requestedName || '').trim().slice(0, 16) || 'Aventurier';
+    const requested = String(requestedName || '').trim().slice(0, 16);
+    let name = requested || randomBotName(L.players.filter((_, i) => i !== idx).map((p) => p.name));
     if (L.players.some((p, i) => i !== idx && p.name.toLowerCase() === name.toLowerCase())) {
       const base = name.slice(0, 13);
       let suffix = 2;
@@ -327,6 +334,7 @@
     if (idx === app.myIdx) {
       app.me.name = player.name;
       app.me.token = player.token;
+      $('nameInput').value = player.name;
     }
   }
   function broadcastLobby() {
@@ -884,6 +892,11 @@
       let champ = el.querySelector('.champ');
       if (s.championship && s.championship.tile === i) { if (!champ) { champ = document.createElement('div'); champ.className = 'champ'; el.appendChild(champ); } champ.textContent = '🏆'; champ.title = `Championnats : loyer x${s.championship.mult}`; }
       else if (champ) champ.remove();
+      let festival = el.querySelector('.festival');
+      if (s.festivalTiles && s.festivalTiles.includes(i)) {
+        if (!festival) { festival = document.createElement('div'); festival.className = 'festival'; el.appendChild(festival); }
+        festival.textContent = '🎪'; festival.title = 'Festival : loyer x2';
+      } else if (festival) festival.remove();
       el.classList.toggle('highlight', !!(highlights && highlights.has(i)));
       el.classList.toggle('sell', sellMode && !!(highlights && highlights.has(i)));
       el.classList.toggle('dimmed', !!(highlights && !highlights.has(i)));
@@ -920,7 +933,8 @@
     return `<div class="levels">${opts.map((o) => {
       const name = o.houses === 0 ? 'Achat' : LEVEL_LABELS[o.houses];
       const pips = o.houses === E.HOTEL ? '<i class="gold"></i>' : '<i></i>'.repeat(o.houses);
-      const rentNow = b.type === 'property' ? b.rents[o.houses] : b.type === 'station' ? RULES.stationRents[Math.min(RULES.stationRents.length - 1, E.countOwned(app.state, app.myIdx, 'station'))] : null;
+      const rentState = { ...app.state, tiles: app.state.tiles.map((tile, index) => index === i ? { owner: app.myIdx, houses: o.houses } : tile) };
+      const rentNow = b.type === 'property' || b.type === 'station' ? E.computeRent(rentState, i, 7) : null;
       const hint = o.locked ? 'Après un passage par la Taverne' : !o.affordable ? 'Pas assez d’or' : rentNow !== null ? `Loyer ${fmt(rentNow)}${o.houses === E.HOTEL ? ' · imprenable' : ''}` : '';
       return `<button class="lvl${o.locked ? ' locked' : ''}" data-houses="${o.houses}" ${o.locked || !o.affordable ? 'disabled' : ''} title="${hint}"><span class="lv-name">${name}</span><span class="lv-houses">${pips}</span><span class="lv-cost">${fmt(o.cost)}</span><span class="lv-rent">${hint}</span></button>`;
     }).join('')}</div>`;
@@ -1062,12 +1076,21 @@
     let html = `<div class="prop-sheet"><div class="ps-head" style="--g:${groupColor(i)}">${esc(b.name || 'Case sans type')}</div>`;
     if (b.type === 'property') {
       const owner = t.owner !== null ? s.players[t.owner] : null;
-      html += `<p>${GROUPS[b.group].label} · Prix ${fmt(b.price)} · Niveau de taverne ${fmt(GROUPS[b.group].houseCost)} · Serviteur doré ${fmt(GROUPS[b.group].houseCost * RULES.hotelCostMult)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${s.championship && s.championship.tile === i ? ` · 🏆 Championnats x${s.championship.mult}` : ''}</p>`;
-      html += '<table>' + b.rents.map((r, k) => k === 0 ? '' : `<tr class="${owner && t.houses === k ? 'now' : ''}"><td>${LEVEL_LABELS[k]} <small class="muted">(+${fmt(E.levelCost(i, 0, k))})</small></td><td>${fmt(r)}</td></tr>`).join('') + '</table>';
+      html += `<p>${GROUPS[b.group].label} · Prix ${fmt(b.price)} · Niveau de taverne ${fmt(GROUPS[b.group].houseCost)} · Serviteur doré ${fmt(GROUPS[b.group].houseCost * RULES.hotelCostMult)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${s.championship && s.championship.tile === i ? ` · 🏆 Championnats x${s.championship.mult}` : ''}${s.festivalTiles && s.festivalTiles.includes(i) ? ' · 🎪 Festival x2' : ''}</p>`;
+      html += '<table>' + b.rents.map((r, k) => {
+        if (k === 0) return '';
+        const assumedOwner = t.owner === null ? me : t.owner;
+        const rentState = { ...s, tiles: s.tiles.map((tile, index) => index === i ? { owner: assumedOwner, houses: k } : tile) };
+        return `<tr class="${owner && t.houses === k ? 'now' : ''}"><td>${LEVEL_LABELS[k]} <small class="muted">(+${fmt(E.levelCost(i, 0, k))})</small></td><td>${fmt(E.computeRent(rentState, i, 7))}</td></tr>`;
+      }).join('') + '</table>';
       if (owner && t.owner !== me) html += `<p>${t.houses === E.HOTEL ? 'Serviteur doré : cette case ne peut pas être rachetée.' : `Rachat possible en y tombant : <b>${fmt(E.buyoutPrice(s, i))}</b> (125 % du prix d’achat initial de ${esc(owner.name)}).`}</p>`;
     } else if (b.type === 'station') {
       const owner = t.owner !== null ? s.players[t.owner] : null;
-      html += `<p>Serviteur neutre · Prix ${fmt(b.price)}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${owner && t.owner !== me ? '<br>Cette case ne peut pas être rachetée.' : ''}</p><table>${RULES.stationRents.map((r, k) => `<tr class="${owner && E.countOwned(s, t.owner, 'station') === k + 1 ? 'now' : ''}"><td>${k + 1} serviteur${k ? 's' : ''} neutre${k ? 's' : ''}</td><td>${fmt(r)}</td></tr>`).join('')}</table>`;
+      html += `<p>Serviteur neutre · Prix ${fmt(b.price)}${s.festivalTiles && s.festivalTiles.includes(i) ? ' · 🎪 Festival x2' : ''}<br>${owner ? `Propriétaire : <b style="color:${owner.color}">${esc(owner.name)}</b>` : 'Libre'}${owner && t.owner !== me ? '<br>Cette case ne peut pas être rachetée.' : ''}</p><table>${RULES.stationRents.map((r, k) => {
+        const assumedOwner = t.owner === null ? me : t.owner;
+        const rentState = { ...s, tiles: s.tiles.map((tile, index) => index === i ? { owner: assumedOwner, houses: 0 } : tile) };
+        return `<tr class="${owner && E.countOwned(s, t.owner, 'station') === k + 1 ? 'now' : ''}"><td>${k + 1} serviteur${k ? 's' : ''} neutre${k ? 's' : ''}</td><td>${fmt(rentState.festivalTiles && rentState.festivalTiles.includes(i) ? r * 2 : r)}</td></tr>`;
+      }).join('')}</table>`;
     } else {
       const desc = {
         blank: 'Cette case sans type n’a aucun effet.',
@@ -1103,9 +1126,10 @@
     $('brandHome').disabled = false;
     document.querySelector('.topbar').classList.add('game-ended');
     const isHost = app.mode !== 'client';
-    const reason = s.endReason === 'time' ? 'Le chrono a sonné !' : 'Tous les adversaires ont fait faillite !';
+    const reason = s.endReason === 'time' ? 'Le chrono a sonné !' : s.endReason === 'victory' ? `Victoire spéciale : ${esc(s.winReason)}.` : 'Tous les adversaires ont fait faillite !';
     const list = s.ranking.map((r, k) => `<li><span class="rk">${k + 1}</span><span class="tk">${r.token}</span><span class="nm">${esc(r.name)}${r.bankrupt ? '<small>Faillite</small>' : `<small>${r.props} case${r.props > 1 ? 's' : ''} · ${fmt(r.cash)} en or</small>`}</span><span class="wt">${r.bankrupt ? '—' : fmt(r.worth)}</span></li>`).join('');
-    openModal(`<h2>🏆 ${esc(s.ranking[0].name)} remporte la taverne !</h2><p>${reason} Classement à la fortune totale (or + valeur des cases et constructions).</p><ul class="ranking">${list}</ul>
+    const rankingDescription = s.endReason === 'victory' ? 'La partie s’arrête immédiatement.' : 'Classement à la fortune totale (or + valeur des cases et constructions).';
+    openModal(`<h2>🏆 ${esc(s.ranking[0].name)} remporte la taverne !</h2><p>${reason} ${rankingDescription}</p><ul class="ranking">${list}</ul>
       <div class="btn-row">${isHost ? '<button class="btn primary" id="againBtn">Rejouer avec les mêmes joueurs</button>' : '<p class="muted">L’hôte peut relancer une partie.</p>'}<button class="btn" data-close>Fermer</button></div>`);
     const ab = $('againBtn');
     if (ab) ab.onclick = () => { closeModal(); const players = s.players.map((p) => ({ name: p.name, token: p.token, isBot: p.isBot, peerId: p.peerId })); launch(players, app.lobby ? app.lobby.durationMin : RULES.defaultDurationMin); };
@@ -1142,8 +1166,9 @@
   function showRules() {
     openModal(`<div class="rules"><h2>Règles de la taverne</h2>
       <h3>But</h3><ul><li>Quand le chrono sonne, le joueur le plus riche gagne : or + valeur des cases et constructions.</li><li>La partie s’arrête aussi si tous les autres joueurs font faillite.</li></ul>
+      <h3>Victoires immédiates</h3><ul><li>Posséder les 4 serviteurs neutres (Brann, Drakkari, Titus et Leeroy).</li><li>Posséder toutes les cases achetables d’un même côté du plateau (serviteurs et cartes neutres).</li><li>Posséder 3 monopoles de famille.</li></ul>
       <h3>Tour de jeu</h3><ul><li>Au début, chacun lance les dés pour déterminer l’ordre de passage ; les égalités sont départagées par un nouveau lancer.</li><li>Chaque tour dure 30 secondes, indiqué par la mèche du pétard. Le tour passe automatiquement à l’expiration.</li><li>Lancez les dés, avancez. Un double fait rejouer ; trois doubles d’affilée envoient sur l’Île perdue.</li><li><b>Case libre</b> : achetez-la directement avec une Taverne de niveau 1 à 4. Seule la Taverne 4 est bloquée jusqu’à un premier passage par la Taverne.</li><li><b>Case à vous</b> : améliorez-la jusqu’à Taverne 4, puis en Serviteur doré, pour le loyer maximal. Le Serviteur doré rend la case imprenable.</li><li><b>Case adverse</b> : payez le loyer, puis vous pouvez la <b>racheter</b> pour 125 % de sa valeur d’achat (sauf Serviteur doré). L’or lui est versé et les niveaux restent.</li><li>Passage par la Taverne : +${fmt(RULES.salary)}.</li></ul>
-      <h3>Cases spéciales</h3><ul><li><b>Chance</b> : tirez une carte (gains, pertes, déplacements, carte de sortie…).</li><li><b>Serviteurs neutres</b> (Brann, Drakkari, Titus et Leeroy) : achetez-les sans niveau ; le loyer dépend du nombre que vous possédez. Ils ne peuvent pas être rachetés.</li><li><b>Taxe</b> : payez ${fmt(RULES.taxA)} à la banque.</li><li><b>Île perdue</b> : payez ${fmt(RULES.jailFee)} ou faites un double pour partir (3 essais).</li><li><b>Championnats</b> : pour ${fmt(RULES.championshipFee)}, le loyer d’une de vos cases est multiplié (x2, x3… jusqu’à x${RULES.championshipMaxMult}).</li><li><b>Tour du monde</b> : il s’active à votre prochain tour et remplace le lancer de dés. Pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous ; passer par la Taverne rapporte ${fmt(RULES.salary)}.</li></ul>
+      <h3>Cases spéciales</h3><ul><li><b>Festival</b> : au début de la partie, 3 cases achetables de familles différentes sont choisies au hasard ; leur loyer est doublé jusqu’à la fin. Le prix d’achat ne change pas.</li><li><b>Chance</b> : tirez une carte (gains, pertes, déplacements, carte de sortie…).</li><li><b>Serviteurs neutres</b> (Brann, Drakkari, Titus et Leeroy) : achetez-les sans niveau ; le loyer dépend du nombre que vous possédez. Ils ne peuvent pas être rachetés.</li><li><b>Taxe</b> : payez ${fmt(RULES.taxA)} à la banque.</li><li><b>Île perdue</b> : payez ${fmt(RULES.jailFee)} ou faites un double pour partir (3 essais).</li><li><b>Championnats</b> : pour ${fmt(RULES.championshipFee)}, le loyer d’une de vos cases est multiplié (x2, x3… jusqu’à x${RULES.championshipMaxMult}).</li><li><b>Monopole</b> : posséder toute une famille double le loyer à tous les niveaux.</li><li><b>Tour du monde</b> : il s’active à votre prochain tour et remplace le lancer de dés. Pour ${fmt(RULES.worldTourFee)}, voyagez vers l’avant jusqu’à une case libre ou à vous ; passer par la Taverne rapporte ${fmt(RULES.salary)}.</li></ul>
       <h3>Dettes</h3><ul><li>En cas de dette, vous pouvez vendre une propriété entière avec tous ses niveaux à la banque pour 75 % du montant total investi.</li><li>En cas de faillite, chaque propriété et ses niveaux sont mis aux enchères entre les joueurs restants. Le joueur en faillite récupère 50 % du prix adjugé.</li></ul>
       <div class="btn-row" style="margin-top:16px"><button class="btn primary" data-close>Compris</button></div></div>`);
   }

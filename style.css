@@ -232,6 +232,7 @@ input:focus, select:focus { border-color: var(--gold-2); }
 @keyframes landbad { 0% { transform: scale(1); } 30% { transform: scale(1.14); box-shadow: 0 0 0 0.35em #ff5a4a; } 100% { transform: scale(1); } }
 @keyframes landgood { 0% { transform: scale(1); } 30% { transform: scale(1.14); box-shadow: 0 0 0 0.35em #7ddf64; } 100% { transform: scale(1); } }
 .tile .champ { position: absolute; top: 2px; right: 2px; font-size: 1.1em; }
+.tile .festival { position: absolute; top: 2px; left: 2px; font-size: 1.1em; }
 
 /* orientation : la bande de couleur pointe vers le centre */
 .tile.side-bottom { flex-direction: column; } .tile.side-bottom .band { height: 1.4em; }

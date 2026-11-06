@@ -7,6 +7,7 @@
   const N = BOARD.length;
   const JAIL_TILE = BOARD.findIndex((tile) => tile.type === 'jail');
   const OWNABLE = new Set(['property', 'station']);
+  const WINNING_LINES = [[1, 7], [9, 15], [17, 23], [25, 31]];
 
   const isOwnable = (i) => OWNABLE.has(BOARD[i].type);
 
@@ -17,6 +18,19 @@
       [a[i], a[j]] = [a[j], a[i]];
     }
     return a;
+  }
+
+  function drawFestivalTiles(rng) {
+    const families = new Map();
+    BOARD.forEach((tile, i) => {
+      if (!OWNABLE.has(tile.type)) return;
+      const family = tile.type === 'property' ? tile.group : 'station';
+      if (!families.has(family)) families.set(family, []);
+      families.get(family).push(i);
+    });
+    return shuffle(Array.from(families.values()), rng)
+      .slice(0, 3)
+      .map((tiles) => tiles[Math.floor(rng() * tiles.length)]);
   }
 
   function newTurn() {
@@ -48,6 +62,7 @@
       phase: 'playing',
       players,
       tiles: BOARD.map((t) => (OWNABLE.has(t.type) ? { owner: null, houses: 0 } : null)),
+      festivalTiles: drawFestivalTiles(rng),
       current: 0,
       turn: { ...newTurn(), step: 'order' },
       ordering: { pending: players.map((_, i) => i), rolls: players.map(() => null), round: 1 },
@@ -67,6 +82,7 @@
       turnCount: 0,
     };
     log(state, 'Chaque joueur lance les dés pour déterminer l’ordre de passage.');
+    log(state, `Festival de la taverne : ${state.festivalTiles.map((i) => BOARD[i].name).join(', ')} ont leur loyer doublé jusqu’à la fin de la partie.`, 'ok');
     return state;
   }
 
@@ -155,14 +171,16 @@
     const b = BOARD[i];
     const t = state.tiles[i];
     const owner = t.owner;
+    let rent = 0;
     if (b.type === 'property') {
-      let r = b.rents[t.houses];
-      if (t.houses === 0 && ownsGroup(state, owner, b.group)) r *= 2;
-      if (state.championship && state.championship.tile === i) r *= state.championship.mult;
-      return r;
+      rent = b.rents[t.houses];
+      if (ownsGroup(state, owner, b.group)) rent *= 2;
+      if (state.championship && state.championship.tile === i) rent *= state.championship.mult;
+    } else if (b.type === 'station') {
+      rent = RULES.stationRents[countOwned(state, owner, 'station') - 1];
     }
-    if (b.type === 'station') return RULES.stationRents[countOwned(state, owner, 'station') - 1];
-    return 0;
+    if (state.festivalTiles && state.festivalTiles.includes(i)) rent *= 2;
+    return rent;
   }
   function canBuild(state, pIdx, i) {
     return buildOptions(state, pIdx, i).some((o) => o.affordable && !o.locked);
@@ -414,16 +432,38 @@
   }
 
   // Fin de partie
-  function endGame(state, reason) {
+  function endGame(state, reason, winnerIdx, winReason) {
     state.phase = 'ended';
     state.remainingMs = 0;
     const ranking = state.players
       .map((p, i) => ({ idx: i, name: p.name, token: p.token, color: p.color, worth: netWorth(state, i), cash: p.cash, bankrupt: p.bankrupt, props: state.tiles.filter((t) => t && t.owner === i).length }))
-      .sort((a, b) => (a.bankrupt !== b.bankrupt ? (a.bankrupt ? 1 : -1) : b.worth - a.worth));
+      .sort((a, b) => (a.idx === winnerIdx ? -1 : b.idx === winnerIdx ? 1 : a.bankrupt !== b.bankrupt ? (a.bankrupt ? 1 : -1) : b.worth - a.worth));
     state.ranking = ranking;
     state.endReason = reason;
-    log(state, `Fin de partie : ${ranking[0].name} l’emporte avec ${fmt(ranking[0].worth)} !`, 'ok');
-    ev(state, { type: 'gameover' });
+    state.winnerIdx = winnerIdx == null ? ranking[0].idx : winnerIdx;
+    state.winReason = winReason || null;
+    const winner = state.players[state.winnerIdx];
+    log(state, `Fin de partie : ${winner.name} l’emporte${winReason ? ` (${winReason})` : ` avec ${fmt(ranking[0].worth)}`} !`, 'ok');
+    ev(state, { type: 'gameover', winner: state.winnerIdx, reason: winReason || reason });
+  }
+
+  function victoryReason(state, pIdx) {
+    if (state.players[pIdx].bankrupt) return null;
+    if (countOwned(state, pIdx, 'station') === BOARD.filter((tile) => tile.type === 'station').length) return 'les quatre cartes neutres';
+    if (WINNING_LINES.some(([from, to]) => {
+      const line = [];
+      for (let i = from; i <= to; i++) if (isOwnable(i)) line.push(i);
+      return line.length > 0 && line.every((i) => state.tiles[i].owner === pIdx);
+    })) return 'toutes les cases achetables d’une ligne';
+    if (Object.keys(GROUPS).filter((group) => ownsGroup(state, pIdx, group)).length >= 3) return 'trois monopoles';
+    return null;
+  }
+
+  function checkVictory(state, pIdx) {
+    const reason = victoryReason(state, pIdx);
+    if (!reason) return false;
+    endGame(state, 'victory', pIdx, reason);
+    return true;
   }
 
   function nextTurn(state, now) {
@@ -519,6 +559,7 @@
     state.auction = null;
     state.current = returnTo;
     state.turn = newTurn();
+    for (let i = 0; i < state.players.length; i++) if (checkVictory(state, i)) return;
     nextTurn(state, now);
   }
   function advanceAuction(state, now) {
@@ -715,7 +756,8 @@
         state.tiles[i].houses = h;
         ev(state, { type: 'buy', player: pIdx, tile: i, houses: h });
         log(state, `${p.name} achète ${b.name}${h ? ` au niveau ${h === HOTEL ? 'Serviteur doré' : `Taverne ${h}`}` : ''} pour ${fmt(opt.cost)}.`, 'ok');
-        if (b.type === 'property' && ownsGroup(state, pIdx, b.group)) log(state, `${p.name} contrôle tous les ${GROUPS[b.group].label}s : loyers doublés !`, 'ok');
+        if (b.type === 'property' && ownsGroup(state, pIdx, b.group)) log(state, `${p.name} contrôle tous les ${GROUPS[b.group].label}s : loyers doublés à tous les niveaux !`, 'ok');
+        if (checkVictory(state, pIdx)) return OK;
         finishStep(state);
         return OK;
       }
@@ -754,7 +796,8 @@
         ev(state, { type: 'buyout', player: pIdx, from: prev, tile: i });
         t.lastPay = { from: pIdx, to: prev, amount: price, reason: `Rachat de ${BOARD[i].name}`, tile: i };
         log(state, `${p.name} rachète ${BOARD[i].name} à ${state.players[prev].name} pour ${fmt(price)} !`, 'ok');
-        if (ownsGroup(state, pIdx, BOARD[i].group)) log(state, `${p.name} contrôle tous les ${GROUPS[BOARD[i].group].label}s : loyers doublés !`, 'ok');
+        if (BOARD[i].type === 'property' && ownsGroup(state, pIdx, BOARD[i].group)) log(state, `${p.name} contrôle tous les ${GROUPS[BOARD[i].group].label}s : loyers doublés à tous les niveaux !`, 'ok');
+        if (checkVictory(state, pIdx)) return OK;
         finishStep(state);
         return OK;
       }

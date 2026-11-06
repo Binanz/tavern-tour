@@ -142,6 +142,14 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   E.apply(orderGame, 0, { type: 'endTurn' }, rng, 3000);
   if (orderGame.current !== 1) throw new Error('le tour suivant ne respecte pas l’ordre déterminé');
   const st = createStartedGame([{ name: 'A' }, { name: 'B' }], { durationMin: 20 }, 0);
+  const festivalGame = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
+  const festivalFamilies = festivalGame.festivalTiles.map((i) => CFG.BOARD[i].type === 'property' ? CFG.BOARD[i].group : 'station');
+  if (festivalGame.festivalTiles.length !== 3 || new Set(festivalFamilies).size !== 3
+    || festivalGame.festivalTiles.some((i) => !E.isOwnable(i))) throw new Error('le Festival doit choisir 3 cases achetables de familles différentes');
+  const festivalTile = festivalGame.festivalTiles[0];
+  const baseCosts = E.buyOptions(festivalGame, 0, festivalTile).map((option) => option.cost);
+  const noFestivalCosts = E.buyOptions({ ...festivalGame, festivalTiles: [] }, 0, festivalTile).map((option) => option.cost);
+  if (baseCosts.join(',') !== noFestivalCosts.join(',')) throw new Error('le Festival ne doit pas modifier les prix d’achat');
   st.tiles[tile.kalecgos].owner = 1; st.tiles[tile.kalecgos].houses = E.HOTEL;
   st.tiles[tile.mother].owner = 1;
   st.players[0].cash = 500000; st.players[0].pos = 30;
@@ -202,12 +210,21 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   if (st.phase !== 'ended') throw new Error('la partie devrait être finie (1 survivant)');
   if (st.ranking[0].name !== 'B') throw new Error('B devrait gagner');
 
-  // Loyers : groupe complet doublé + championnat ; serviteurs neutres
+  // Loyers : monopole à tous les niveaux, Festival, Championnats et serviteurs neutres
   const s2 = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
   s2.tiles[tile.mother].owner = 1; s2.tiles[tile.kalecgos].owner = 1;
   if (E.computeRent(s2, tile.mother, 7) !== CFG.BOARD[tile.mother].rents[0] * 2) throw new Error('loyer doublé attendu');
+  s2.tiles[tile.mother].houses = 2;
+  if (E.computeRent(s2, tile.mother, 7) !== CFG.BOARD[tile.mother].rents[2] * 2) throw new Error('le monopole doit doubler le loyer à tous les niveaux');
+  s2.festivalTiles = [tile.mother];
+  if (E.computeRent(s2, tile.mother, 7) !== CFG.BOARD[tile.mother].rents[2] * 4) throw new Error('Festival et monopole doivent cumuler leurs multiplicateurs');
   s2.championship = { tile: tile.mother, mult: 3 };
-  if (E.computeRent(s2, tile.mother, 7) !== CFG.BOARD[tile.mother].rents[0] * 6) throw new Error('championnat x3 attendu');
+  if (E.computeRent(s2, tile.mother, 7) !== CFG.BOARD[tile.mother].rents[2] * 12) throw new Error('championnat, Festival et monopole doivent cumuler leurs multiplicateurs');
+  s2.tiles[tile.stations[0]].owner = 1;
+  const stationBaseRent = E.computeRent(s2, tile.stations[0], 7);
+  s2.festivalTiles = [tile.stations[0]];
+  if (E.computeRent(s2, tile.stations[0], 7) !== stationBaseRent * 2) throw new Error('le Festival doit doubler le loyer d’un serviteur neutre');
+  s2.festivalTiles = [];
   s2.tiles[21].owner = 1; s2.tiles[22].owner = 1; s2.tiles[23].owner = 1;
   if (E.computeRent(s2, 21) !== CFG.BOARD[21].rents[0] * 2) throw new Error('loyer de groupe complet attendu pour les serviteurs de type F');
   s2.tiles[tile.stations[0]].owner = 1; s2.tiles[tile.stations[1]].owner = 1;
@@ -218,6 +235,25 @@ console.log('étapes cumulées:', JSON.stringify(agg));
   E.apply(stationPurchase, 0, { type: 'roll' }, () => 0, 0);
   if (stationPurchase.turn.step !== 'buy' || E.buyOptions(stationPurchase, 0, tile.stations[0])[0].houses !== 0) throw new Error('le serviteur neutre doit être achetable sans niveau');
   if (!E.apply(stationPurchase, 0, { type: 'buy' }, rng, 0).ok || stationPurchase.tiles[tile.stations[0]].owner !== 0) throw new Error('achat du serviteur neutre refusé');
+
+  function checkInstantWin(ownedTiles, targetTile, expectedReason) {
+    const game = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, Date.now());
+    ownedTiles.forEach((i) => { game.tiles[i].owner = 0; });
+    game.turn.step = 'buy';
+    game.turn.offer = targetTile;
+    const result = E.apply(game, 0, { type: 'buy', houses: CFG.BOARD[targetTile].type === 'property' ? 1 : 0 }, rng, Date.now());
+    if (!result.ok || game.phase !== 'ended' || game.endReason !== 'victory' || game.winnerIdx !== 0 || game.winReason !== expectedReason) {
+      throw new Error(`condition de victoire immédiate incorrecte (${expectedReason})`);
+    }
+  }
+  const allNeutralExceptBrann = tile.stations.slice(1);
+  checkInstantWin(allNeutralExceptBrann, tile.stations[0], 'les quatre cartes neutres');
+  const firstLineExceptLast = [1, 2, 3, 4, 5, 6];
+  checkInstantWin(firstLineExceptLast, 7, 'toutes les cases achetables d’une ligne');
+  const monopoliesExceptDragon = CFG.BOARD
+    .map((boardTile, i) => boardTile.type === 'property' && (boardTile.group === 'mech' || boardTile.group === 'murloc' || (boardTile.group === 'dragon' && i === tile.kalecgos)) ? i : -1)
+    .filter((i) => i >= 0);
+  checkInstantWin(monopoliesExceptDragon, tile.mother, 'trois monopoles');
 
   // Achat à plusieurs niveaux : seule Taverne 4 est verrouillée avant un tour de plateau
   const s3 = createStartedGame([{ name: 'A' }, { name: 'B' }], {}, 0);
