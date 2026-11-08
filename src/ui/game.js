@@ -1,6 +1,7 @@
 import { $, app, RULES } from '../runtime.js';
 
 export function createGameView({ showMoneyDelta, showTurnOverlay, processEvents, showGame, buildPawns, positionAllPawns, renderPlayers, renderTiles, renderLog, renderActions, renderTileInfo, showEnd }) {
+  const markCenter = () => $('center').classList.toggle('compact', !!$('actions').querySelector('.offer-card, .levels'));
   function onState() {
     const s = app.state; if (!s) return;
     showGame();
@@ -32,11 +33,11 @@ export function createGameView({ showMoneyDelta, showTurnOverlay, processEvents,
     app.selectMode = null;
     renderTimer();
     clearTimeout(app.actionTimer);
-    renderActions(true);
+    renderActions(true); markCenter();
     app.actionTimer = setTimeout(() => {
       if (app.state !== s) return;
       app.animating = false;
-      renderPlayers(); renderTiles(); renderLog(); renderActions(false);
+      renderPlayers(); renderTiles(); renderLog(); renderActions(false); markCenter();
       if (app.selectedTile === null) app.selectedTile = 0;
       if (renderTileInfo) renderTileInfo(app.selectedTile);
     }, app.animDelay);

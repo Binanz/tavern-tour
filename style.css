@@ -284,7 +284,7 @@ input:focus, select:focus { border-color: var(--gold-2); }
 /* centre du plateau */
 .center {
   grid-column: 2 / 9; grid-row: 2 / 9; position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  font-size: clamp(10px, calc(var(--size) / 88), 13px);
+  font-size: clamp(12px, calc(var(--size) / 62), 16px);
   background: var(--wood-800);
   border-radius: 6px; box-shadow: inset 0 0 0 1px var(--gold-dim);
   min-width: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
@@ -372,7 +372,7 @@ input:focus, select:focus { border-color: var(--gold-2); }
 .player-card .pc-name .off { font-size: 10px; color: #ff8a7a; }
 .player-card .pc-meta { font-size: var(--text-xs); color: var(--cream-dim); }
 .player-card .pc-cash { text-align: right; font-family: var(--font-display); font-weight: 700; font-size: 17px; color: var(--gold-2); font-variant-numeric: tabular-nums; }
-.player-card .pc-props { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 3px; min-height: 8px; }
+.player-card .pc-props { grid-column: 2 / -1; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 3px; min-height: 8px; margin-top: -4px; }
 .player-card.flash-gain { animation: flashgain 1s var(--ease); }
 .player-card.flash-loss { animation: flashloss 1s var(--ease); }
 @keyframes flashgain { 20% { background: rgba(80, 180, 90, 0.5); border-color: #9ee29c; } }
@@ -488,7 +488,8 @@ input:focus, select:focus { border-color: var(--gold-2); }
 }
 
 /* Optional game modes */
-.mode-settings { grid-column: 1 / -1; display: grid; gap: 10px; }
+.mode-settings { display: grid; gap: 10px; margin: 0 0 18px; padding: 14px 0 0; border-top: 1px solid rgba(217, 179, 90, 0.25); }
+.mode-settings .muted { margin: 0; font-size: var(--text-sm); }
 .mode-note { max-width: 100%; margin: 0; padding: .6em; background: #51375c; border-radius: 8px; color: #f6e5ff; font-size: .95em; line-height: 1.4; }
 .tile.cursed { outline: 3px solid #9c5cc5; outline-offset: -4px; }
 .tile.cursed .name::before { content: "☠ "; }
@@ -501,6 +502,9 @@ input:focus, select:focus { border-color: var(--gold-2); }
 .power-slot select { width: 100%; min-width: 0; }
 .legendary { border: 2px solid #e8bc62; background: #49305b; color: #fff0c7; }
 .player-powers { grid-column: 1 / -1; font-size: 12px; color: var(--cream-dim); line-height: 1.5; }
+
+/* Achat / enchère : taille d'origine du centre */
+.center.compact { font-size: clamp(10px, calc(var(--size) / 88), 13px); }
 
 /* Keep the first choice reachable when mode content exceeds the center height. */
 .center { justify-content: safe center; }

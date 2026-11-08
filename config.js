@@ -61,7 +61,7 @@
     P('Artiste des mers du Sud', 'pirate', 180000, 'Artiste des mers'),                     // 13
     S('Enchanteresse drakkari', 'Drakkari'),                                                 // 14
     P('Eudora, maîtresse d’équipage', 'pirate', 200000, 'Eudora'),                          // 15
-    { type: 'championship', name: 'Sombre Don', sub: 'du Sombrelune' },                      // 16
+    { type: 'championship', name: 'Sombre Don' },                      // 16
     P('Géomancienne de Tranchebauge', 'quilboar', 220000, 'Géomancienne'),                  // 17
     S('Titus Vaillefendre', 'Titus'),                                                       // 18
     P('Géomage Roogug', 'quilboar', 240000, 'Roogug'),                                      // 19
