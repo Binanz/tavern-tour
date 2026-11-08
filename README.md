@@ -54,7 +54,7 @@ Local play against bots works without creating a room. Online multiplayer requir
 - A player sent to A. F. KAH must pay to leave, use a release card, or attempt to roll doubles.
 - The Time-Twisted Portal activates on the player's next turn and replaces their normal dice roll.
 - The Shadow Gift can increase rent on one of the player's properties.
-- Darkmoon Festival spaces are marked with a subtle violet halo; the Shadow Gift target is marked with a subtle red halo.
+- Darkmoon Festival spaces are marked with a bright violet halo; the Shadow Gift target is marked with a bright red halo.
 
 ### Winning
 

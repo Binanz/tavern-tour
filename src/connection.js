@@ -35,7 +35,7 @@ export function createConnection({ setNetStatus, showLobby, applyLobbyProfile, b
         return;
       }
       if (L.players.length >= RULES.maxPlayers) { app.net.sendTo(from, { type: 'rejected', reason: 'La salle est pleine (4 joueurs).' }); return; }
-      let name = String(msg.name || 'Invité').slice(0, 16);
+      let name = String(msg.name || 'Invité').slice(0, 40);
       if (L.players.some((p) => p.name.toLowerCase() === name.toLowerCase())) name += ' ' + (L.players.length + 1);
       let token = TOKENS.includes(msg.token) ? msg.token : TOKENS[L.players.length];
       if (L.players.some((p) => p.token === token)) token = TOKENS.find((t) => !L.players.some((p) => p.token === t)) || token;

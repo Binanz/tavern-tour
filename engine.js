@@ -6,9 +6,10 @@
   const { RULES, GROUPS, BOARD, CARDS, PLAYER_COLORS } = CFG;
   const N = BOARD.length;
   const JAIL_TILE = BOARD.findIndex((tile) => tile.type === 'jail');
-  const JAIL_NAME = BOARD[JAIL_TILE].name;
-  const SHADOW_GIFT_NAME = BOARD.find((tile) => tile.type === 'championship').name;
-  const PORTAL_NAME = BOARD.find((tile) => tile.type === 'worldtour').name;
+  // Lus à chaque usage : les noms de cases peuvent être remplacés par content.json après le chargement du moteur.
+  const jailName = () => BOARD[JAIL_TILE].name;
+  const shadowGiftName = () => BOARD.find((tile) => tile.type === 'championship').name;
+  const portalName = () => BOARD.find((tile) => tile.type === 'worldtour').name;
   const OWNABLE = new Set(['property', 'station']);
   const WINNING_LINES = [[1, 7], [9, 15], [17, 23], [25, 31]];
 
@@ -263,7 +264,7 @@
     p.jailTurns = 0;
     state.turn.isDouble = false; // pas de relance
     ev(state, { type: 'jail', player: pIdx });
-    log(state, `${p.name} échoue à ${JAIL_NAME} !`, 'warn');
+    log(state, `${p.name} échoue à ${jailName()} !`, 'warn');
     state.turn.step = 'done';
   }
 
@@ -315,7 +316,10 @@
       case 'station':
       {
         if (t.owner === null) {
-          if (p.cash >= landPrice(state, i)) {
+          if (state.turn.expired) {
+            log(state, `${p.name} arrive sur ${b.name} mais son temps est écoulé : il ne peut pas l’acheter.`, 'warn');
+            finishStep(state);
+          } else if (p.cash >= landPrice(state, i)) {
             state.turn.step = 'buy';
             state.turn.offer = i;
             log(state, `${p.name} arrive sur ${b.name} (libre, ${fmt(landPrice(state, i))}).`);
@@ -324,7 +328,7 @@
             finishStep(state);
           }
         } else if (t.owner === pIdx) {
-          if (canBuild(state, pIdx, i)) {
+          if (!state.turn.expired && canBuild(state, pIdx, i)) {
             state.turn.step = 'build';
             state.turn.offer = i;
             log(state, `${p.name} est chez lui sur ${b.name} : construire ?`);
@@ -345,7 +349,7 @@
           }
           log(state, `${p.name} tombe chez ${owner.name} (${b.name}) : loyer ${fmt(rent)}.`, 'rent');
           if (pay(state, pIdx, rent, t.owner, `Loyer ${b.name}`)) {
-            if (canBuyout(state, pIdx, i)) {
+            if (!state.turn.expired && canBuyout(state, pIdx, i)) {
               state.turn.step = 'buyout';
               state.turn.offer = i;
               state.turn.buyoutPrice = buyoutPrice(state, i);
@@ -366,17 +370,17 @@
         sendToJail(state, pIdx);
         break;
       case 'championship':
-        if (championshipTargets(state, pIdx).length && p.cash >= RULES.championshipFee) {
+        if (!state.turn.expired && championshipTargets(state, pIdx).length && p.cash >= RULES.championshipFee) {
           state.turn.step = 'championship';
-          log(state, `${p.name} peut utiliser le ${SHADOW_GIFT_NAME} (${fmt(RULES.championshipFee)}).`);
+          log(state, `${p.name} peut utiliser le ${shadowGiftName()} (${fmt(RULES.championshipFee)}).`);
         } else {
-          log(state, `${p.name} découvre le ${SHADOW_GIFT_NAME}.`);
+          log(state, `${p.name} découvre le ${shadowGiftName()}.`);
           finishStep(state);
         }
         break;
       case 'worldtour':
         p.worldTourPending = true;
-        log(state, `${p.name} active le ${PORTAL_NAME} pour son prochain tour.`);
+        log(state, `${p.name} active le ${portalName()} pour son prochain tour.`);
         finishStep(state);
         break;
       default:
@@ -456,11 +460,12 @@
     const t = state.turn;
     const p = state.players[state.current];
     t.offer = null; t.buyoutPrice = null;
-    if (t.isDouble && !p.inJail && t.doubles < 3) {
+    if (t.isDouble && !p.inJail && t.doubles < 3 && !t.expired) {
       t.step = 'roll';
       t.isDouble = false;
       log(state, `Double ! ${p.name} rejoue.`, 'ok');
     } else {
+      if (t.isDouble && t.expired && !p.inJail) log(state, `Double, mais le temps de ${p.name} est écoulé : le joueur suivant joue à sa place.`, 'warn');
       t.step = 'done';
     }
   }
@@ -576,7 +581,7 @@
     state.turn = newTurn();
     state.turnEndsAt = now + RULES.turnDurationMs;
     const p = state.players[i];
-    log(state, `— Au tour de ${p.name}${p.inJail ? ` (à ${JAIL_NAME})` : ''}.`, 'turn');
+    log(state, `— Au tour de ${p.name}${p.inJail ? ` (à ${jailName()})` : ''}.`, 'turn');
     if (p.inJail) state.turn.step = 'jail';
     else if (p.worldTourPending) {
       p.worldTourPending = false;
@@ -838,7 +843,7 @@
         ev(state, { type: 'dice', player: pIdx, dice: d });
         log(state, `${p.name} lance ${d[0]} + ${d[1]}${t.isDouble ? ' (double)' : ''}.`);
         if (t.doubles >= 3) {
-          log(state, `Trois doubles ! ${p.name} est envoyé à ${JAIL_NAME}.`, 'warn');
+          log(state, `Trois doubles ! ${p.name} est envoyé à ${jailName()}.`, 'warn');
           sendToJail(state, pIdx);
           return OK;
         }
@@ -919,25 +924,25 @@
         return OK;
       }
       case 'jailPay': {
-        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${JAIL_NAME}.`);
+        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${jailName()}.`);
         if (p.cash < RULES.jailFee) return ERR('Pas assez d’or.');
         p.cash -= RULES.jailFee;
         p.inJail = false;
         t.step = 'roll';
-        log(state, `${p.name} paie ${fmt(RULES.jailFee)} et quitte ${JAIL_NAME}.`);
+        log(state, `${p.name} paie ${fmt(RULES.jailFee)} et quitte ${jailName()}.`);
         return OK;
       }
       case 'jailCard': {
-        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${JAIL_NAME}.`);
+        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${jailName()}.`);
         if (p.jailCards <= 0) return ERR('Aucune carte de sortie.');
         p.jailCards--;
         p.inJail = false;
         t.step = 'roll';
-        log(state, `${p.name} utilise une carte et quitte ${JAIL_NAME}.`);
+        log(state, `${p.name} utilise une carte et quitte ${jailName()}.`);
         return OK;
       }
       case 'jailRoll': {
-        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${JAIL_NAME}.`);
+        if (t.step !== 'jail') return ERR(`Vous n’êtes pas à ${jailName()}.`);
         const d = rollDice(rng);
         t.dice = d;
         t.rolledThisTurn = true;
@@ -945,7 +950,7 @@
         if (d[0] === d[1]) {
           p.inJail = false;
           t.isDouble = false;
-          log(state, `${p.name} fait un double (${d[0]}+${d[1]}) et s’échappe de ${JAIL_NAME} !`, 'ok');
+          log(state, `${p.name} fait un double (${d[0]}+${d[1]}) et s’échappe de ${jailName()} !`, 'ok');
           moveTo(state, pIdx, (p.pos + d[0] + d[1]) % N, { diceSum: d[0] + d[1] }, rng);
         } else {
           p.jailTurns++;
@@ -1047,7 +1052,7 @@
         return OK;
       }
       case 'championship': {
-        if (t.step !== 'championship') return ERR(`Pas de ${SHADOW_GIFT_NAME} à utiliser.`);
+        if (t.step !== 'championship') return ERR(`Pas de ${shadowGiftName()} à utiliser.`);
         const i = action.tile;
         if (!championshipTargets(state, pIdx).includes(i)) return ERR('Case invalide.');
         if (p.cash < RULES.championshipFee) return ERR('Pas assez d’or.');
@@ -1056,12 +1061,12 @@
         const mult = Math.min(RULES.championshipMaxMult, prev ? prev.mult + 1 : 2);
         state.championship = { tile: i, mult };
         ev(state, { type: 'championship', tile: i, mult });
-        log(state, `${p.name} utilise le ${SHADOW_GIFT_NAME} sur ${BOARD[i].name} : loyer x${mult} !`, 'ok');
+        log(state, `${p.name} utilise le ${shadowGiftName()} sur ${BOARD[i].name} : loyer x${mult} !`, 'ok');
         finishStep(state);
         return OK;
       }
       case 'skipChampionship': {
-        if (t.step !== 'championship') return ERR(`Pas de ${SHADOW_GIFT_NAME} à utiliser.`);
+        if (t.step !== 'championship') return ERR(`Pas de ${shadowGiftName()} à utiliser.`);
         finishStep(state);
         return OK;
       }
@@ -1110,7 +1115,14 @@
     }
     if (state.turnEndsAt != null && now >= state.turnEndsAt) {
       state.events = [];
-      if (['diceChoice', 'tavernChoice', 'rerollChoice'].includes(state.turn.step)) {
+      if (!state.auction && (state.turn.step === 'roll' || state.turn.step === 'jail')) {
+        // Temps écoulé : les dés sont lancés quand même, mais sans achat ni construction, et sans rejouer sur un double.
+        const pIdx = state.current;
+        state.turn.expired = true;
+        log(state, `Le temps de ${state.players[pIdx].name} est écoulé : les dés sont lancés automatiquement.`, 'warn');
+        apply(state, pIdx, { type: state.turn.step === 'jail' ? 'jailRoll' : 'roll' }, rng, now);
+        if (state.phase === 'playing' && !state.auction && state.turn.step === 'done') nextTurn(state, now);
+      } else if (['diceChoice', 'tavernChoice', 'rerollChoice'].includes(state.turn.step)) {
         apply(state, state.current, state.turn.step === 'tavernChoice' ? { type: 'chooseTavern', reward: 'cash' } : botAction(state, state.current), rng, now);
       } else if (state.auction) {
         log(state, `${state.players[state.current].name} n’a pas enchéri à temps : il passe.`, 'warn');
@@ -1138,7 +1150,7 @@
         if (state.phase === 'playing' && !state.auction) nextTurn(state, now);
       } else {
         const pIdx = state.current;
-        log(state, `${state.players[pIdx].name} n’a pas terminé son tour à temps.`, 'warn');
+        if (!state.turn.expired) log(state, `${state.players[pIdx].name} n’a pas terminé son tour à temps.`, 'warn');
         nextTurn(state, now);
       }
       return true;
@@ -1157,7 +1169,12 @@
       const minimum = a.highestBidder === null ? RULES.auctionMinBid : a.highestBid + RULES.auctionMinBid;
       const limit = Math.floor(tileValue(state, a.tiles[a.cursor]) * 0.75 / RULES.auctionMinBid) * RULES.auctionMinBid;
       if (p.cash >= minimum && limit >= minimum && a.highestBid < limit) {
-        return { type: 'auctionBid', amount: Math.min(limit, minimum) };
+        // Surenchère par paliers (≈ 15 % de la valeur max) au lieu de +10 000 à chaque tour : les enchères restent courtes.
+        const unit = RULES.auctionMinBid;
+        const step = Math.max(unit, Math.round(limit * 0.15 / unit) * unit);
+        const opening = Math.max(minimum, Math.round(limit * 0.4 / unit) * unit);
+        const target = a.highestBidder === null ? opening : a.highestBid + step;
+        return { type: 'auctionBid', amount: Math.min(limit, p.cash, Math.max(minimum, target)) };
       }
       return { type: 'auctionPass' };
     }

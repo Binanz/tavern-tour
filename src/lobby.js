@@ -190,10 +190,10 @@ export function createLobby({ hostOnMessage, onPeerLeft, clientOnMessage, schedu
   function applyLobbyProfile(idx, requestedName, requestedToken) {
     const L = app.lobby; const player = L && L.players[idx];
     if (!player) return;
-    const requested = String(requestedName || '').trim().slice(0, 16);
+    const requested = String(requestedName || '').trim().slice(0, 40);
     let name = requested || randomBotName(L.players.filter((_, i) => i !== idx).map((p) => p.name));
     if (L.players.some((p, i) => i !== idx && p.name.toLowerCase() === name.toLowerCase())) {
-      const base = name.slice(0, 13);
+      const base = name.slice(0, 37);
       let suffix = 2;
       while (L.players.some((p, i) => i !== idx && p.name.toLowerCase() === `${base} ${suffix}`.toLowerCase())) suffix++;
       name = `${base} ${suffix}`;
