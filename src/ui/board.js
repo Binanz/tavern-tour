@@ -99,7 +99,7 @@ export function createBoard({ onTileClick }) {
       const meta = [p.inJail ? BOARD.find((tile) => tile.type === 'jail').name : BOARD[p.pos].name, p.jailCards ? `${p.jailCards} carte${p.jailCards > 1 ? 's' : ''} de sortie` : ''].filter(Boolean).join(' · ');
       card.innerHTML = `
         <div class="pc-tok">${p.token}</div>
-        <div><div class="pc-name">${esc(p.name)}${i === app.myIdx ? '<span class="you">Vous</span>' : ''}${p.isBot ? `<span class="bot">${p.connected === false ? 'Bot (déco)' : 'Bot'}</span>` : ''}</div><div class="pc-meta">${p.bankrupt ? 'Faillite' : esc(meta)}</div></div>
+        <div class="pc-text"><div class="pc-name"><span class="pc-nm" title="${esc(p.name)}">${esc(p.name)}</span>${i === app.myIdx ? '<span class="you">Vous</span>' : ''}${p.isBot ? `<span class="bot">${p.connected === false ? 'Bot (déco)' : 'Bot'}</span>` : ''}</div><div class="pc-meta">${p.bankrupt ? 'Faillite' : esc(meta)}</div></div>
         <div class="pc-cash">${fmt(p.cash)}</div>
         <div class="pc-props">${chips}</div>`;
       if (s.powers) {
@@ -171,8 +171,12 @@ export function createBoard({ onTileClick }) {
 
   function renderLog() {
     const s = app.state; const el = $('log');
+    // On ne recolle en bas que si le joueur y était déjà : il peut ainsi remonter lire l’historique.
+    const stickToBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40 || !el.dataset.ready;
+    const previousTop = el.scrollTop;
     el.innerHTML = s.log.map((l) => `<div class="l ${l.k}">${esc(l.t)}</div>`).join('');
-    el.scrollTop = el.scrollHeight;
+    el.dataset.ready = '1';
+    el.scrollTop = stickToBottom ? el.scrollHeight : previousTop;
   }
 
 

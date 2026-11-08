@@ -103,7 +103,7 @@ export function createSession({ shuffledBotNames, setNetStatus, onState }) {
     if (!p.isBot) return;
     const a = E.botAction(s, s.current);
     if (!a) return;
-    const base = { orderRoll: 1300, roll: 1300, jailRoll: 1300, endTurn: 1100, sell: 800, buy: 1200, build: 1200 }[a.type] || 1000;
+    const base = { orderRoll: 1300, roll: 1300, jailRoll: 1300, endTurn: 1100, sell: 800, buy: 1200, build: 1200, auctionBid: 800, auctionPass: 600 }[a.type] || 1000;
     app.botTimer = setTimeout(() => dispatch(s.current, a, null), base + app.animDelay);
   }
 

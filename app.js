@@ -1,5 +1,6 @@
 // Assemblage des contrôleurs. Les callbacks relient les modules sans imports circulaires.
 import { app, E } from './src/runtime.js';
+
 import { createLobby } from './src/lobby.js';
 import { createConnection } from './src/connection.js';
 import { createSession } from './src/session.js';
@@ -8,6 +9,17 @@ import { createAnimations } from './src/ui/animations.js';
 import { createActions } from './src/ui/actions.js';
 import { createDialogs } from './src/ui/dialogs.js';
 import { createGameView } from './src/ui/game.js';
+
+// Noms de cases, textes de cartes et noms de bots/joueurs viennent de content.json
+// (valeurs par défaut de config.js si le fichier est absent ou invalide).
+if (typeof fetch === 'function') {
+  try {
+    const response = await fetch('./content.json', { cache: 'no-cache' });
+    if (response.ok) window.TT_CONFIG.applyContent(await response.json());
+  } catch (error) {
+    if (typeof console !== 'undefined') console.warn('content.json non appliqué : valeurs par défaut utilisées.', error);
+  }
+}
 
 const lobby = createLobby({
   hostOnMessage: (...args) => connection.hostOnMessage(...args),
